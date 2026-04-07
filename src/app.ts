@@ -35,7 +35,8 @@ app.use(requestLogger);
 app.use(globalRateLimiter);
 const corsOptions = {
   origin: (origin: string | undefined, callback: any) => {
-    const allowedOrigins = [env.FRONTEND_URL];
+    const frontendUrl = env.FRONTEND_URL.replace(/\/$/, "");
+    const allowedOrigins = [frontendUrl];
     
     if (env.NODE_ENV === "development") {
       allowedOrigins.push("http://localhost:3000", "http://localhost:3001");
