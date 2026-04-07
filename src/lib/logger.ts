@@ -10,16 +10,6 @@ export const logger = pino({
     hostname: os.hostname(),
   },
   timestamp: pino.stdTimeFunctions.isoTime,
-  ...(isDevelopment && {
-    transport: {
-      target: 'pino-pretty',
-      options: {
-        colorize: true,
-        ignore: 'pid,hostname',
-        translateTime: 'HH:MM:ss Z',
-      },
-    },
-  }),
 });
 
 /**
