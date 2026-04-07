@@ -209,6 +209,7 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -216,6 +217,7 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour (token itself is 30m)
   });
 
@@ -266,6 +268,7 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -273,6 +276,7 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
@@ -475,6 +479,7 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
@@ -482,6 +487,7 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? "none" : "lax",
+    path: "/",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
