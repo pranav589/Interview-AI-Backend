@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Copy package files and install ALL dependencies (including dev deps like typescript)
 COPY package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 # Copy source code and tsconfig
 COPY . .
@@ -27,7 +27,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package*.json ./
 
 # Install ONLY production dependencies to keep the image tiny
-RUN npm install --production
+RUN npm install --production --legacy-peer-deps
 
 # Create the uploads folder (used by multer) and set permissions
 RUN mkdir -p uploads && chmod 777 uploads
