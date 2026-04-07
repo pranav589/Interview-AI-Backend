@@ -21,6 +21,9 @@ const app = express();
 // Security headers
 app.use(helmet());
 
+// Trust proxy for secure cookies
+app.set("trust proxy", 1);
+
 // Health check before logging/limits
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });

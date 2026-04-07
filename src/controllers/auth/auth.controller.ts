@@ -208,14 +208,14 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour (token itself is 30m)
   });
 
@@ -265,14 +265,14 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
   res.cookie("refreshToken", newRefreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", newAccessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
@@ -291,8 +291,15 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const logoutHandler = (req: Request, res: Response) => {
-  res.clearCookie("refreshToken", { path: "/" });
-  res.clearCookie("accessToken", { path: "/" });
+  const isProd = env.NODE_ENV === "production";
+  const cookieOptions = {
+    path: "/",
+    httpOnly: true,
+    secure: isProd,
+    sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+  };
+  res.clearCookie("refreshToken", cookieOptions);
+  res.clearCookie("accessToken", cookieOptions);
   return res.status(200).json({
     message: "Logged out",
   });
@@ -467,14 +474,14 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: "lax",
+    sameSite: isProd ? "none" : "lax",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 

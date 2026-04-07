@@ -19,28 +19,21 @@ export const errorHandler = (
     sendDevError(err, res);
   } else {
     // Production: handle specific error types (Mongoose, etc)
-    let error = { ...err };
-    error.message = err.message;
-    error.statusCode = err.statusCode;
-
-    // Handle Mongoose cast error (bad ID)
+    let error = err;
+    
+    // Copy for specific error types if needed, otherwise use direct reference
     if (err.name === "CastError") {
-      error.message = `Invalid ${err.path}: ${err.value}`;
-      error.statusCode = 400;
+      error = new AppError(`Invalid ${err.path}: ${err.value}`, 400);
     }
-
-    // Handle Mongoose validation error
+    
     if (err.name === "ValidationError") {
       const messages = Object.values(err.errors).map((el: any) => el.message);
-      error.message = `Invalid input data: ${messages.join(". ")}`;
-      error.statusCode = 400;
+      error = new AppError(`Invalid input data: ${messages.join(". ")}`, 400);
     }
-
-    // Handle Mongoose duplicate key error (code 11000)
+    
     if (err.code === 11000) {
       const value = err.errmsg.match(/(["'])(\\?.)*?\1/)[0];
-      error.message = `Duplicate field value: ${value}. Please use another value!`;
-      error.statusCode = 400;
+      error = new AppError(`Duplicate field value: ${value}. Please use another value!`, 400);
     }
 
     sendProdError(error, res);
