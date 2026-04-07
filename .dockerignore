@@ -1,0 +1,6 @@
+node_modules
+dist
+.env
+.git
+env_check.log
+uploads/*
