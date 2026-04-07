@@ -478,6 +478,10 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           if (rt && isReady) {
             let chunk = Buffer.from(data.chunk, "base64");
+
+            if (chunk.length < 100) {
+              logger.debug({ length: chunk.length, threadId }, "[WS] Received unusually small or empty audio chunk");
+            }
             if (chunk.length >= 44 && chunk.slice(0, 4).toString() === "RIFF") {
               chunk = chunk.slice(44);
             }

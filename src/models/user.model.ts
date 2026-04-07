@@ -49,6 +49,10 @@ const userSchema = new Schema(
       type: String,
       default: undefined,
     },
+    weeklyEmailDigest: {
+      type: Boolean,
+      default: true,
+    },
   },
   {
     timestamps: true,

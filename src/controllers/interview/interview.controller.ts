@@ -2,7 +2,12 @@ import mongoose, { Types } from "mongoose";
 import { z } from "zod";
 
 import { Request, Response } from "express";
-import { interviewSchema, getInterviewsQuerySchema, feedbackRequestSchema, aiFeedbackSchema } from "./interview.schema";
+import {
+  interviewSchema,
+  getInterviewsQuerySchema,
+  feedbackRequestSchema,
+  aiFeedbackSchema,
+} from "./interview.schema";
 
 import { Interview } from "../../models/interview.model";
 import { User } from "../../models/user.model";
@@ -13,202 +18,313 @@ import { ValidationError, NotFoundError } from "../../lib/errors";
 import { AuthenticatedRequest } from "../../types/express";
 import { Feedback } from "../../models/feedback.model";
 import { env } from "../../config/env";
-import { invokeLLMWithFallback, invokeStructuredLLMWithFallback } from "../../lib/llm-with-fallback";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
-
-
+import {
+  invokeLLMWithFallback,
+  invokeStructuredLLMWithFallback,
+} from "../../lib/llm-with-fallback";
+import {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} from "@langchain/core/prompts";
 
 const logger = createModuleLogger("interview");
 
+export const createInterview = asyncHandler(
+  async (req: Request, res: Response) => {
+    const authUser = (req as AuthenticatedRequest).user;
 
-
-export const createInterview = asyncHandler(async (req: Request, res: Response) => {
-  const authUser = (req as AuthenticatedRequest).user;
-
-
-  const result = interviewSchema.safeParse(req.body);
-  if (!result.success) {
-    throw new ValidationError("Invalid data!");
-  }
-
-  const {
-    interviewType,
-    difficultyLevel,
-    numberOfQuestions,
-    duration,
-    jobTitle,
-    company,
-    customTopics,
-    jobDescription,
-    companyStyle,
-  } = result.data as {
-    interviewType: string;
-    difficultyLevel: string;
-    numberOfQuestions: number;
-    duration?: number;
-    jobTitle?: string;
-    company?: string;
-    customTopics?: string;
-    jobDescription?: string;
-    companyStyle?: string;
-  };
-
-  // Fetch fresh user data to get resume text (which we don't keep in authReq)
-  const user = await User.findById(authUser.id);
-
-  const newInterview = await Interview.create({
-    userId: authUser.id,
-    interviewType,
-    difficultyLevel,
-    numberOfQuestions,
-    duration: duration || 30,
-    jobTitle,
-    company,
-    customTopics,
-    jobDescription,
-    companyStyle,
-    resume: user?.resume,
-  });
-
-  return res.status(201).json({
-    message: "Interview created",
-    interviewId: newInterview._id.toString(),
-    data: newInterview,
-  });
-});
-
-export const getInterviews = asyncHandler(async (req: Request, res: Response) => {
-  const authUser = (req as AuthenticatedRequest).user;
-
-  const result = getInterviewsQuerySchema.safeParse(req.query);
-  if (!result.success) {
-    throw new ValidationError("Invalid query parameters");
-  }
-
-  const { page, limit, type, difficulty, status } = result.data;
-
-  const skip = (page - 1) * limit;
-  
-  const query: any = { userId: authUser.id };
-  if (type && type !== 'all') query.interviewType = type;
-  if (difficulty && difficulty !== 'all') query.difficultyLevel = difficulty;
-  if (status && status !== 'all') query.status = status;
-
-
-  const interviews = await Interview.find(query)
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit));
-
-  const total = await Interview.countDocuments(query);
-
-  return res.status(200).json({ 
-    data: interviews,
-    pagination: {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+    const result = interviewSchema.safeParse(req.body);
+    if (!result.success) {
+      throw new ValidationError("Invalid data!");
     }
 
-  });
-});
+    const {
+      interviewType,
+      difficultyLevel,
+      numberOfQuestions,
+      duration,
+      jobTitle,
+      company,
+      customTopics,
+      jobDescription,
+      companyStyle,
+    } = result.data as {
+      interviewType: string;
+      difficultyLevel: string;
+      numberOfQuestions: number;
+      duration?: number;
+      jobTitle?: string;
+      company?: string;
+      customTopics?: string;
+      jobDescription?: string;
+      companyStyle?: string;
+    };
 
-export const getInterviewDetails = asyncHandler(async (req: Request, res: Response) => {
-  const authUser = (req as AuthenticatedRequest).user;
+    // Fetch fresh user data to get resume text (which we don't keep in authReq)
+    const user = await User.findById(authUser.id);
 
-  const { id } = req.params;
-  if (!mongoose.isValidObjectId(id)) {
-    throw new ValidationError("Invalid interview ID format");
-  }
+    const newInterview = await Interview.create({
+      userId: authUser.id,
+      interviewType,
+      difficultyLevel,
+      numberOfQuestions,
+      duration: duration || 30,
+      jobTitle,
+      company,
+      customTopics,
+      jobDescription,
+      companyStyle,
+      resume: user?.resume,
+    });
 
+    return res.status(201).json({
+      message: "Interview created",
+      interviewId: newInterview._id.toString(),
+      data: newInterview,
+    });
+  },
+);
 
-  const interview = await Interview.findOne({
-    _id: id,
-    userId: authUser.id,
-  }).populate("feedbackId");
+export const getInterviews = asyncHandler(
+  async (req: Request, res: Response) => {
+    const authUser = (req as AuthenticatedRequest).user;
 
-  if (!interview) {
-    throw new NotFoundError("Interview not found");
-  }
+    const result = getInterviewsQuerySchema.safeParse(req.query);
+    if (!result.success) {
+      throw new ValidationError("Invalid query parameters");
+    }
 
-  const state = await graphApp.getState({
-    configurable: { thread_id: id },
-  });
+    const { page, limit, type, difficulty, status } = result.data;
 
-  const transcriptions = (state.values as any)?.messages?.map((msg: any) => ({
-    role: msg._getType(),
-    text: msg.content,
-    timestamp: msg.response_metadata?.timestamp || new Date(),
-  })) || [];
+    const skip = (page - 1) * limit;
 
-  return res.status(200).json({
-    data: {
-      ...interview.toObject(),
-      transcriptions,
-    },
-  });
-});
+    const query: any = { userId: authUser.id };
+    if (type && type !== "all") query.interviewType = type;
+    if (difficulty && difficulty !== "all") query.difficultyLevel = difficulty;
+    if (status && status !== "all") query.status = status;
 
-export const getInterviewStats = asyncHandler(async (req: Request, res: Response) => {
-  const authUser = (req as AuthenticatedRequest).user;
+    const interviews = await Interview.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
 
+    const total = await Interview.countDocuments(query);
 
-  const userId = new mongoose.Types.ObjectId(authUser.id);
+    return res.status(200).json({
+      data: interviews,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  },
+);
 
-  const aggregationResult = await Interview.aggregate([
-    {
-      $match: { userId: userId }
-    },
-    {
-      $group: {
-        _id: null,
-        totalInterviews: { $sum: 1 },
-        avgScore: { $avg: "$score" },
-        totalDuration: { $sum: "$actualDuration" }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        totalInterviews: 1,
-        avgScore: { $round: ["$avgScore", 0] },
-        totalDuration: 1
+export const getInterviewDetails = asyncHandler(
+  async (req: Request, res: Response) => {
+    const authUser = (req as AuthenticatedRequest).user;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      throw new ValidationError("Invalid interview ID format");
+    }
+
+    const interview = await Interview.findOne({
+      _id: id,
+      userId: authUser.id,
+    }).populate("feedbackId");
+
+    if (!interview) {
+      throw new NotFoundError("Interview not found");
+    }
+
+    const state = await graphApp.getState({
+      configurable: { thread_id: id },
+    });
+
+    const transcriptions =
+      (state.values as any)?.messages?.map((msg: any) => ({
+        role: msg._getType(),
+        text: msg.content,
+        timestamp: msg.response_metadata?.timestamp || new Date(),
+      })) || [];
+
+    return res.status(200).json({
+      data: {
+        ...interview.toObject(),
+        transcriptions,
+      },
+    });
+  },
+);
+
+export const getInterviewStats = asyncHandler(
+  async (req: Request, res: Response) => {
+    const authUser = (req as AuthenticatedRequest).user;
+    const userId = new mongoose.Types.ObjectId(authUser.id);
+
+    // Basic Stats (Aggregation)
+    const aggregationResult = await Interview.aggregate([
+      { $match: { userId: userId, status: "completed" } },
+      {
+        $group: {
+          _id: null,
+          totalInterviews: { $sum: 1 },
+          avgScore: { $avg: "$score" },
+          totalDuration: { $sum: "$actualDuration" },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          totalInterviews: 1,
+          avgScore: { $round: ["$avgScore", 0] },
+          totalDuration: 1,
+        },
+      },
+    ]);
+
+    const stats =
+      aggregationResult.length > 0
+        ? aggregationResult[0]
+        : {
+            totalInterviews: 0,
+            avgScore: 0,
+            totalDuration: 0,
+          };
+
+    // Radar Data (Communication, Technical, Confidence)
+    const radarAggregation = await Feedback.aggregate([
+      {
+        $lookup: {
+          from: "interviews",
+          localField: "interviewId",
+          foreignField: "_id",
+          as: "interview",
+        },
+      },
+      { $unwind: "$interview" },
+      { $match: { "interview.userId": userId } },
+      {
+        $group: {
+          _id: null,
+          communication: { $avg: "$communicationScore" },
+          technical: { $avg: "$technicalScore" },
+          confidence: { $avg: "$confidenceScore" },
+        },
+      },
+    ]);
+
+    const radarData =
+      radarAggregation.length > 0
+        ? {
+            communication: Math.round(radarAggregation[0].communication || 0),
+            technical: Math.round(radarAggregation[0].technical || 0),
+            confidence: Math.round(radarAggregation[0].confidence || 0),
+          }
+        : { communication: 0, technical: 0, confidence: 0 };
+
+    // Streak Calculation
+    const interviews = await Interview.find({
+      userId: userId,
+      status: "completed",
+    })
+      .sort({ createdAt: -1 })
+      .select("createdAt");
+
+    let streak = 0;
+    if (interviews.length > 0) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      let lastDate = new Date(interviews[0].createdAt);
+      lastDate.setHours(0, 0, 0, 0);
+
+      // If last interview was today or yesterday
+      const diff =
+        (today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24);
+
+      if (diff <= 1) {
+        streak = 1;
+        let currentCheckDate = lastDate;
+
+        for (let i = 1; i < interviews.length; i++) {
+          const nextDate = new Date(interviews[i].createdAt);
+          nextDate.setHours(0, 0, 0, 0);
+
+          const dayDiff =
+            (currentCheckDate.getTime() - nextDate.getTime()) /
+            (1000 * 60 * 60 * 24);
+
+          if (dayDiff === 1) {
+            streak++;
+            currentCheckDate = nextDate;
+          } else if (dayDiff > 1) {
+            break;
+          }
+          // If multiple interviews on same day, just continue
+        }
       }
     }
-  ]);
 
-  const stats = aggregationResult.length > 0 ? aggregationResult[0] : {
-    totalInterviews: 0,
-    avgScore: 0,
-    totalDuration: 0
-  };
+    // Comparison Percentile
+    // Calculate how many users have an average score lower than this user
+    const allUsersStats = await Interview.aggregate([
+      { $match: { status: "completed" } },
+      {
+        $group: {
+          _id: "$userId",
+          avgScore: { $avg: "$score" },
+        },
+      },
+    ]);
 
-  return res.status(200).json({ data: stats });
-});
+    let percentile = 0;
+    if (allUsersStats.length > 1 && stats.totalInterviews > 0) {
+      const lowerScores = allUsersStats.filter(
+        (u) => u.avgScore < stats.avgScore,
+      ).length;
+      percentile = Math.round((lowerScores / (allUsersStats.length - 1)) * 100);
+    } else if (stats.totalInterviews > 0) {
+      percentile = 100; // Only user
+    }
 
-export const getFeedbackHandler = asyncHandler(async (req: Request, res: Response) => {
-  const result = feedbackRequestSchema.safeParse(req.body);
-  if (!result.success) {
-    throw new ValidationError(result.error.issues[0].message);
-  }
+    return res.status(200).json({
+      data: {
+        ...stats,
+        radarData,
+        streak,
+        percentile,
+      },
+    });
+  },
+);
 
-  const { threadId, actualDuration } = result.data;
+export const getFeedbackHandler = asyncHandler(
+  async (req: Request, res: Response) => {
+    const result = feedbackRequestSchema.safeParse(req.body);
+    if (!result.success) {
+      throw new ValidationError(result.error.issues[0].message);
+    }
 
-  const interview = await Interview.findById(threadId);
-  if (!interview) {
-    throw new NotFoundError("Interview record not found");
-  }
+    const { threadId, actualDuration } = result.data;
 
-  const state = await graphApp.getState({
-    configurable: { thread_id: threadId },
-  });
+    const interview = await Interview.findById(threadId);
+    if (!interview) {
+      throw new NotFoundError("Interview record not found");
+    }
 
-  if (!state || !state.values || !state.values.messages) {
-    throw new NotFoundError("State not found or no messages");
-  }
+    const state = await graphApp.getState({
+      configurable: { thread_id: threadId },
+    });
 
-  const prompt = `Act as an expert, highly critical Senior Interviewer. Analyze this interview transcript for a candidate practice session.
+    if (!state || !state.values || !state.values.messages) {
+      throw new NotFoundError("State not found or no messages");
+    }
+
+    const prompt = `Act as an expert, highly critical Senior Interviewer. Analyze this interview transcript for a candidate practice session.
 ---
 Context:
 - Interview Type: {interviewType}
@@ -227,63 +343,69 @@ Instructions:
 6. For EACH question asked, provide individual feedback with a model/ideal answer for comparison.
 7. MANDATORY: The 'questions' array must contain every question the AI asked during the session, with the candidate's actual corresponding response from the transcript.`;
 
-  const promptTemplate = ChatPromptTemplate.fromMessages([
-    ["system", prompt],
-    new MessagesPlaceholder("history"),
-  ]);
+    const promptTemplate = ChatPromptTemplate.fromMessages([
+      ["system", prompt],
+      new MessagesPlaceholder("history"),
+    ]);
 
-  const formattedMessages = await promptTemplate.formatMessages({
-    interviewType: interview.interviewType,
-    difficultyLevel: interview.difficultyLevel,
-    numQuestions: interview.numberOfQuestions,
-    customTopics: (interview as any).customTopics || "None specified",
-    jobDescription: (interview as any).jobDescription || "None specified",
-    companyStyle: (interview as any).companyStyle || "Standard professional",
-    history: state.values.messages,
-  });
+    const formattedMessages = await promptTemplate.formatMessages({
+      interviewType: interview.interviewType,
+      difficultyLevel: interview.difficultyLevel,
+      numQuestions: interview.numberOfQuestions,
+      customTopics: (interview as any).customTopics || "None specified",
+      jobDescription: (interview as any).jobDescription || "None specified",
+      companyStyle: (interview as any).companyStyle || "Standard professional",
+      history: state.values.messages,
+    });
 
-  const responseData = await invokeStructuredLLMWithFallback(aiFeedbackSchema, formattedMessages, {
-    timeout: 90000,
-  });
+    const responseData = await invokeStructuredLLMWithFallback(
+      aiFeedbackSchema,
+      formattedMessages,
+      {
+        timeout: 90000,
+      },
+    );
 
-  const data = responseData;
+    const data = responseData;
 
-  // Save or update feedback document
-  const feedback = await Feedback.findOneAndUpdate(
-    { interviewId: threadId },
-    { $set: data },
-    { new: true, upsert: true }
-  );
+    // Save or update feedback document
+    const feedback = await Feedback.findOneAndUpdate(
+      { interviewId: threadId },
+      { $set: data },
+      { new: true, upsert: true },
+    );
 
-  // Update interview session
-  await Interview.findByIdAndUpdate(threadId, {
-    status: "completed",
-    score: data.overallScore,
-    feedbackId: feedback._id,
-    actualDuration: actualDuration || 0
-  });
+    // Update interview session
+    await Interview.findByIdAndUpdate(threadId, {
+      status: "completed",
+      score: data.overallScore,
+      feedbackId: feedback._id,
+      actualDuration: actualDuration || 0,
+    });
 
-  return res.json({ feedback: feedback });
-});
+    return res.json({ feedback: feedback });
+  },
+);
 
-export const getScoreHistory = asyncHandler(async (req: Request, res: Response) => {
-  const authUser = (req as AuthenticatedRequest).user;
+export const getScoreHistory = asyncHandler(
+  async (req: Request, res: Response) => {
+    const authUser = (req as AuthenticatedRequest).user;
 
-  const interviews = await Interview.find({
-    userId: authUser.id,
-    status: "completed",
-    score: { $gt: 0 },
-  })
-    .sort({ createdAt: 1 })
-    .select("score interviewType createdAt")
-    .limit(20);
+    const interviews = await Interview.find({
+      userId: authUser.id,
+      status: "completed",
+      score: { $gt: 0 },
+    })
+      .sort({ createdAt: 1 })
+      .select("score interviewType createdAt")
+      .limit(20);
 
-  const history = interviews.map((i) => ({
-    date: i.createdAt,
-    score: i.score,
-    type: i.interviewType,
-  }));
+    const history = interviews.map((i) => ({
+      date: i.createdAt,
+      score: i.score,
+      type: i.interviewType,
+    }));
 
-  return res.status(200).json({ data: history });
-});
-
+    return res.status(200).json({ data: history });
+  },
+);
