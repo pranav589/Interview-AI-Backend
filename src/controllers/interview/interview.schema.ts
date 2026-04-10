@@ -1,8 +1,9 @@
 import z from "zod";
+import { INTERVIEW_TYPES, DIFFICULTY_LEVELS } from "../../config/constants";
 
 export const interviewSchema = z.object({
-  interviewType: z.enum(["behavioral", "technical", "system-design"]),
-  difficultyLevel: z.enum(["beginner", "intermediate", "advanced"]),
+  interviewType: z.enum(INTERVIEW_TYPES),
+  difficultyLevel: z.enum(DIFFICULTY_LEVELS),
   numberOfQuestions: z.number().default(5),
   duration: z.number().optional(),
   jobTitle: z.string().optional(),
@@ -15,8 +16,8 @@ export const interviewSchema = z.object({
 export const getInterviewsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(10),
-  type: z.enum(['all', 'behavioral', 'technical', 'system-design']).optional(),
-  difficulty: z.enum(['all', 'beginner', 'intermediate', 'advanced']).optional(),
+  type: z.enum(['all', ...INTERVIEW_TYPES]).optional(),
+  difficulty: z.enum(['all', ...DIFFICULTY_LEVELS]).optional(),
   status: z.enum(['all', 'not-started', 'in-progress', 'completed']).optional(),
 });
 export const feedbackRequestSchema = z.object({

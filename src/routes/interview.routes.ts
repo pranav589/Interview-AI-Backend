@@ -10,11 +10,14 @@ import {
 import requireAuth from "../middleware/requireAuth";
 
 import { interviewRateLimiter } from "../middleware/rateLimiter";
+import { checkSubscription, requireCredits } from "../middleware/subscription";
 
 const router = Router();
 
+router.use(checkSubscription);
+
 router.post("/feedback", getFeedbackHandler);
-router.post("/", interviewRateLimiter, createInterview);
+router.post("/", interviewRateLimiter, requireCredits, createInterview);
 router.get("/", getInterviews);
 router.get("/stats", getInterviewStats);
 router.get("/score-history", getScoreHistory);

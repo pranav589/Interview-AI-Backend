@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { SUBSCRIPTION_TIERS, DEFAULT_FREE_CREDITS } from "../config/constants";
 
 const userSchema = new Schema(
   {
@@ -45,6 +46,19 @@ const userSchema = new Schema(
       type: Date,
       default: undefined,
     },
+    subscriptionTier: {
+      type: String,
+      enum: Object.values(SUBSCRIPTION_TIERS),
+      default: SUBSCRIPTION_TIERS.FREE,
+    },
+    credits: {
+      type: Number,
+      default: DEFAULT_FREE_CREDITS,
+    },
+    lastCreditReset: {
+      type: Date,
+      default: Date.now,
+    },
     resume: {
       type: String,
       default: undefined,
@@ -52,6 +66,10 @@ const userSchema = new Schema(
     weeklyEmailDigest: {
       type: Boolean,
       default: true,
+    },
+    onboardingCompleted: {
+      type: Boolean,
+      default: false,
     },
   },
   {

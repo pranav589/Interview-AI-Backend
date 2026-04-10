@@ -6,6 +6,7 @@ import {
 } from "./middleware/rateLimiter";
 import { errorHandler } from "./middleware/errorHandler";
 import cookieParser from "cookie-parser";
+import configRouter from "./routes/config.routes";
 import authRouter from "./routes/auth.routes";
 import userRouter from "./routes/user.routes";
 import adminRouter from "./routes/admin.routes";
@@ -15,11 +16,14 @@ import cors from "cors";
 
 import { env } from "./config/env";
 import { requestLogger } from "./middleware/requestLogger";
+import { streamTTS } from "./controllers/interview/tts.controller";
 
 const app = express();
 
 // Security headers
-app.use(helmet());
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+}));
 
 // Trust proxy for secure cookies
 app.set("trust proxy", 1);
@@ -57,6 +61,8 @@ app.use(cors(corsOptions));
 app.use(cookieParser());
 
 // Routes
+app.get("/api/v1/tts", streamTTS);
+app.use("/api/v1/config", configRouter);
 app.use("/api/v1/auth", authRateLimiter, authRouter);
 app.use("/api/v1/user", requireAuth, userRouter);
 app.use("/api/v1/admin", adminRouter);

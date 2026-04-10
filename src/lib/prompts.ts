@@ -11,6 +11,8 @@ interface PromptContext {
   customTopics?: string;
   jobDescription?: string;
   companyStyle?: string;
+  isCodingMode?: boolean;
+  codingModeEnabled?: boolean;
 }
 
 export function getInterviewerSystemPrompt(ctx: PromptContext): string {
@@ -42,7 +44,23 @@ GENERAL RULES:
 5. If the candidate gives a vague answer, ask a focused follow-up ONCE before moving on.
 6. ${ctx.customTopics ? `STRICT ADHERENCE: You MUST prioritize questions related to these custom topics: ${ctx.customTopics}.` : ""}
 7. ${ctx.jobDescription ? `JD ALIGNMENT: Tailor your questions to the specific requirements and responsibilities mentioned in the Job Description.` : ""}
-8. ${ctx.companyStyle ? `STYLE ENFORCEMENT: Adopt the ${ctx.companyStyle} interview style. For example, if it's "Google-style", focus on first principles and deep problem-solving.` : ""}`;
+8. ${ctx.companyStyle ? `STYLE ENFORCEMENT: Adopt the ${ctx.companyStyle} interview style. For example, if it's "Google-style", focus on first principles and deep problem-solving.` : ""}
+${
+  ctx.codingModeEnabled !== false
+    ? `9. CODING MODE: When you ask a coding or whiteboard exercise, wrap it in a special block:
+   [CODING_MODE: <language>] 
+   Your instructions/question text here.
+   [/CODING_MODE]
+   Supported languages: python, javascript, java, cpp, typescript. 
+   Only use this mode when a proper coding challenge is needed. Use "text" for discussion.
+10. THINKING OUT LOUD: During CODING MODE, candidates often think out loud. Do NOT interrupt them with feedback or hints for every sentence. Only respond if:
+    a) They ask you a direct question (e.g., "Can I use a hash map here?").
+    b) They explicitly ask for a hint.
+    c) They submitted their code (you will receive a special markdown block with the code).
+    d) They have been silent or clearly struggling for a long time (provide a gentle nudge).`
+    : "9. NO CODING MODE: The interactive coding environment is currently disabled. Conduct the interview entirely through discussion. Do NOT use the [CODING_MODE] block. If a code example is needed, provide it as a standard markdown block within your text response."
+}
+` ;
 }
 
 function getTypeSpecificInstructions(type: string, difficulty: string): string {
