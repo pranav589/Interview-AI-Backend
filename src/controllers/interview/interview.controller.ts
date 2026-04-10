@@ -15,17 +15,16 @@ import { graphApp } from "../../utils/graph";
 import { createModuleLogger } from "../../lib/logger";
 import { asyncHandler } from "../../lib/asyncHandler";
 import { ValidationError, NotFoundError } from "../../lib/errors";
+import { SUBSCRIPTION_TIERS, MESSAGES } from "../../config/constants";
 import { AuthenticatedRequest } from "../../types/express";
 import { Feedback } from "../../models/feedback.model";
-import { env } from "../../config/env";
-import {
-  invokeLLMWithFallback,
-  invokeStructuredLLMWithFallback,
-} from "../../lib/llm-with-fallback";
+import { invokeStructuredLLMWithFallback } from "../../lib/llm-with-fallback";
 import {
   ChatPromptTemplate,
   MessagesPlaceholder,
 } from "@langchain/core/prompts";
+
+import { isFeatureEnabled } from "../../utils/feature-flags";
 
 const logger = createModuleLogger("interview");
 
@@ -35,7 +34,7 @@ export const createInterview = asyncHandler(
 
     const result = interviewSchema.safeParse(req.body);
     if (!result.success) {
-      throw new ValidationError("Invalid data!");
+      throw new ValidationError(MESSAGES.INTERVIEW.INVALID_DATA);
     }
 
     const {
@@ -60,8 +59,15 @@ export const createInterview = asyncHandler(
       companyStyle?: string;
     };
 
-    // Fetch fresh user data to get resume text (which we don't keep in authReq)
-    const user = await User.findById(authUser.id);
+    // Fetch fresh user data (attached by checkSubscription middleware)
+    const user = (req as any).fullUser;
+
+    // Feature Gating: Free tier can only do behavioral (Don't remove this, it's for future use)
+    /*
+    if (user.subscriptionTier === SUBSCRIPTION_TIERS.FREE && interviewType !== "behavioral") {
+      throw new ValidationError(MESSAGES.SUBSCRIPTION.PRO_ONLY_FEATURE);
+    }
+    */
 
     const newInterview = await Interview.create({
       userId: authUser.id,
@@ -77,10 +83,19 @@ export const createInterview = asyncHandler(
       resume: user?.resume,
     });
 
+    // Consume credit for free tier if enabled
+    if (await isFeatureEnabled("credits_system_enabled")) {
+      if (user.subscriptionTier === SUBSCRIPTION_TIERS.FREE) {
+        user.credits = Math.max(0, user.credits - 1);
+        await user.save();
+      }
+    }
+
     return res.status(201).json({
-      message: "Interview created",
+      message: MESSAGES.INTERVIEW.CREATED,
       interviewId: newInterview._id.toString(),
       data: newInterview,
+      updatedCredits: user.credits,
     });
   },
 );
@@ -324,7 +339,10 @@ export const getFeedbackHandler = asyncHandler(
       throw new NotFoundError("State not found or no messages");
     }
 
-    const prompt = `Act as an expert, highly critical Senior Interviewer. Analyze this interview transcript for a candidate practice session.
+    const user = (req as any).fullUser;
+    const isFreeTier = user.subscriptionTier === "free";
+
+    const basePrompt = `Act as an expert, highly critical Senior Interviewer. Analyze this interview transcript for a candidate practice session.
 ---
 Context:
 - Interview Type: {interviewType}
@@ -340,11 +358,14 @@ Instructions:
 3. Be brutally honest and firm. If the candidate was mediocre, give them a mediocre score. Avoid boilerplate "you did well" statements. 
 4. Analyze how many distinct questions were actually answered. If the candidate answered FEWER than {numQuestions} questions (e.g., they ended early), you MUST penalize them significantly (at least 20 points per missing question) in the 'overallScore'.
 5. Evaluate technical accuracy, communication clarity, and confidence.
-6. For EACH question asked, provide individual feedback with a model/ideal answer for comparison.
-7. MANDATORY: The 'questions' array must contain every question the AI asked during the session, with the candidate's actual corresponding response from the transcript.`;
+${
+  isFreeTier
+    ? "6. Provide a concise feedback summary with strengths and areas for improvement. DO NOT provide model answers or per-question breakdowns."
+    : "6. For EACH question asked, provide individual feedback with a model/ideal answer for comparison.\n7. MANDATORY: The 'questions' array must contain every question the AI asked during the session, with the candidate's actual corresponding response from the transcript."
+}`;
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
-      ["system", prompt],
+      ["system", basePrompt],
       new MessagesPlaceholder("history"),
     ]);
 

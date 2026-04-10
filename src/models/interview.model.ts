@@ -1,4 +1,5 @@
 import mongoose, { Schema, model } from "mongoose";
+import { INTERVIEW_TYPES, DIFFICULTY_LEVELS } from "../config/constants";
 
 const interviewSchema = new Schema(
   {
@@ -9,12 +10,12 @@ const interviewSchema = new Schema(
     },
     interviewType: {
       type: String,
-      enum: ["behavioral", "technical", "system-design"],
+      enum: INTERVIEW_TYPES,
       required: true,
     },
     difficultyLevel: {
       type: String,
-      enum: ["beginner", "intermediate", "advanced"],
+      enum: DIFFICULTY_LEVELS,
       required: true,
     },
     numberOfQuestions: {

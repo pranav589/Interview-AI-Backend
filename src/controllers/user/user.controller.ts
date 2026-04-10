@@ -7,6 +7,7 @@ import { asyncHandler } from "../../lib/asyncHandler";
 import { ValidationError, NotFoundError } from "../../lib/errors";
 import { AuthenticatedRequest } from "../../types/express";
 import { updateSettingsSchema, resumeUploadSchema } from "./user.schema";
+import { MESSAGES } from "../../config/constants";
 
 const logger = createModuleLogger("user-controller");
 
@@ -15,7 +16,7 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
 
   const user = await User.findById(userId);
   if (!user) {
-    throw new NotFoundError("User not found");
+    throw new NotFoundError(MESSAGES.USER.NOT_FOUND);
   }
 
   return res.json({
@@ -27,7 +28,33 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
       isEmailVerified: user.isEmailVerified,
       hasResume: !!user.resume,
       twoFactorEnabled: user.twoFactorEnabled,
+      subscriptionTier: user.subscriptionTier,
+      credits: user.credits,
+      lastCreditReset: user.lastCreditReset,
+      weeklyEmailDigest: user.weeklyEmailDigest,
+      onboardingCompleted: user.onboardingCompleted,
     },
+  });
+});
+
+export const completeOnboarding = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { onboardingCompleted: true },
+    { new: true }
+  );
+
+  if (!user) {
+    throw new NotFoundError(MESSAGES.USER.NOT_FOUND);
+  }
+
+  return res.json({
+    message: MESSAGES.USER.ONBOARDING_SUCCESS,
+    user: {
+      onboardingCompleted: user.onboardingCompleted,
+    }
   });
 });
 
@@ -49,7 +76,7 @@ export const uploadResume = asyncHandler(async (req: Request, res: Response) => 
     let resumeText = docs.map((doc) => doc.pageContent).join("\n").trim();
 
     if (!resumeText) {
-      throw new ValidationError("Could not extract text from PDF. Please ensure it's not an image-only PDF.");
+      throw new ValidationError(MESSAGES.USER.RESUME_EXTRACT_ERROR);
     }
 
     if (resumeText.length > 50000) {
@@ -64,11 +91,11 @@ export const uploadResume = asyncHandler(async (req: Request, res: Response) => 
     );
 
     if (!updatedUser) {
-      throw new NotFoundError("User not found");
+      throw new NotFoundError(MESSAGES.USER.NOT_FOUND);
     }
 
     return res.json({
-      message: "Resume uploaded and processed successfully",
+      message: MESSAGES.USER.RESUME_UPLOAD_SUCCESS,
       resumeText: resumeText.slice(0, 100) + "...",
       user: {
         id: updatedUser.id,
@@ -110,11 +137,11 @@ export const updateSettings = asyncHandler(async (req: Request, res: Response) =
   );
 
   if (!updatedUser) {
-    throw new NotFoundError("User not found");
+    throw new NotFoundError(MESSAGES.USER.NOT_FOUND);
   }
 
   return res.json({
-    message: "Settings updated successfully",
+    message: MESSAGES.USER.SETTINGS_UPDATE_SUCCESS,
     user: {
       id: updatedUser.id,
       weeklyEmailDigest: updatedUser.weeklyEmailDigest,

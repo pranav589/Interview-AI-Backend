@@ -6,6 +6,7 @@ import { WebSocketServer } from "ws";
 import { setupWebSocket } from "./lib/socket";
 import { setupGraph } from "./utils/graph";
 import { createModuleLogger } from "./lib/logger";
+import { seedFeatureFlags } from "./utils/seed-config";
 import mongoose from "mongoose";
 
 const logger = createModuleLogger("server");
@@ -15,6 +16,7 @@ let wss: WebSocketServer;
 
 async function startServer() {
   const client = await connectToDB();
+  await seedFeatureFlags();
   await setupGraph(client as any);
 
   server = http.createServer(app);

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import requireAuth from "../middleware/requireAuth";
 import multer from "multer";
-import { getProfile, uploadResume, updateSettings } from "../controllers/user/user.controller";
+import { getProfile, uploadResume, updateSettings, completeOnboarding } from "../controllers/user/user.controller";
 
 const router = Router();
 const upload = multer({ 
@@ -17,6 +17,9 @@ const upload = multer({
 
 // Get user profile
 router.get("/me", requireAuth, getProfile);
+
+// Complete onboarding
+router.post("/complete-onboarding", requireAuth, completeOnboarding);
 
 // Resume upload & parsing
 router.post(

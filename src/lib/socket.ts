@@ -60,12 +60,36 @@ const wsResumeStartSchema = z.object({
   threadId: z.string().min(1).optional(),
 });
 
+const wsCodeSchema = z.object({
+  type: z.literal("code_submission"),
+  content: z.string().min(1),
+  language: z.string().optional(),
+});
+
+function parseCodingMode(text: string) {
+  if (!text) return { isCoding: false };
+  const regex =
+    /\[CODING[\s_-]*MODE:\s*([\w+\#\-]+)\]([\s\S]*?)\[\/CODING[\s_-]*MODE\]/i;
+  const match = text.match(regex);
+  if (match) {
+    return {
+      isCoding: true,
+      language: match[1]
+        .toLowerCase()
+        .replace("c++", "cpp")
+        .replace("c#", "csharp"),
+      questionText: match[2].trim(),
+    };
+  }
+  return { isCoding: false };
+}
+
 export const setupWebSocket = (wss: WebSocketServer) => {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
     let userId: string | null = null;
 
     try {
-      // 1. Try Ticket Auth (Primary for cross-origin)
+      // Try Ticket Auth (Primary for cross-origin)
       const url = new URL(req.url || "", `http://${req.headers.host}`);
       const ticket = url.searchParams.get("ticket");
 
@@ -73,7 +97,7 @@ export const setupWebSocket = (wss: WebSocketServer) => {
         userId = validateTicket(ticket);
       }
 
-      // 2. Try Cookie Auth (Fallback for same-origin)
+      // Try Cookie Auth (Fallback for same-origin)
       if (!userId && req.headers.cookie) {
         const cookies = cookie.parse(req.headers.cookie);
         const accessToken = cookies.accessToken;
@@ -102,11 +126,30 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     let threadId: string | null = null;
     let rt: any = null;
     let isReady = false;
+    let isConnecting = false;
     let isInterviewStarting = false;
     let processedTurns = new Set();
     let isProcessingTurn = false;
+    let audioBuffer = Buffer.alloc(0);
+    let audioFlushTimeout: NodeJS.Timeout | null = null;
 
     // ---------- Extracted helpers ----------
+
+    const extractAIResponse = (messages: any[]) => {
+      const aiMessages = [];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        const role =
+          msg.role || msg.type || (msg._getType ? msg._getType() : "");
+
+        if (role === "ai" || role === "assistant") {
+          aiMessages.unshift(msg.content);
+        } else {
+          break;
+        }
+      }
+      return aiMessages.join("\n\n");
+    };
 
     const handleTranscriberTurn = async (turn: any) => {
       const text = turn.transcript;
@@ -145,24 +188,46 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             "AI response timed out. Please try again.",
           )) as any;
 
-          const aiText = (result.messages.at(-1) as any).content;
-          if (ws.readyState === ws.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "text",
-                content: aiText,
-                isFinished: !!result.isFinished,
-              }),
-            );
+          const aiText = extractAIResponse(result.messages);
+          logger.info(
+            { threadId, aiTextLength: aiText?.length },
+            "[FLOW] AI Response received",
+          );
 
-            if (result.isFinished && rt) {
-              try {
-                await rt.close();
-              } catch (e) {
-                /* ignore */
+          if (ws.readyState === ws.OPEN) {
+            const codingInfo = parseCodingMode(aiText);
+
+            if (codingInfo.isCoding) {
+              logger.info(
+                { language: codingInfo.language },
+                "[FLOW] Coding mode detected",
+              );
+
+              const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
+              if (preText) {
+                ws.send(JSON.stringify({ type: "text", content: preText }));
               }
-              rt = null;
-              isReady = false;
+
+              ws.send(
+                JSON.stringify({
+                  type: "coding_question",
+                  language: codingInfo.language,
+                  questionText: codingInfo.questionText,
+                  initialCode: "",
+                }),
+              );
+            } else {
+              ws.send(
+                JSON.stringify({
+                  type: "text",
+                  content: aiText,
+                  isFinished: !!result.isFinished,
+                }),
+              );
+            }
+
+            if (result.isFinished) {
+              await closeTranscriber();
             }
           }
         } catch (err: any) {
@@ -182,29 +247,82 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     };
 
     const createAndConnectTranscriber = async () => {
-      rt = aai.streaming.transcriber({
-        sampleRate: 16000,
-        formatTurns: true,
-        speechModel: "universal-streaming-english",
-        minTurnSilence: 3000,
-      });
+      if (rt || isConnecting || isReady) return;
 
-      rt.on("turn", handleTranscriberTurn);
-      rt.on("open", ({ id }: { id: string }) => {
-        isReady = true;
-        logger.info({ id }, "[AAI] Session started");
-      });
-      rt.on("close", (code: number, reason: string) => {
-        isReady = false;
-        logger.info({ code, reason }, "[AAI] Session closed");
-      });
-      rt.on("error", (err: any) => {
-        logger.error({ err }, "[AAI] Transcriber Error");
-        isReady = false;
-      });
+      isConnecting = true;
+      try {
+        rt = aai.streaming.transcriber({
+          sampleRate: 16000,
+          formatTurns: true,
+          speechModel: "universal-streaming-english",
+          minTurnSilence: 3000,
+        });
 
-      await rt.connect();
-      logger.info("[AAI] Connected successfully");
+        rt.on("turn", handleTranscriberTurn);
+        rt.on("open", ({ id }: { id: string }) => {
+          isReady = true;
+          isConnecting = false;
+          logger.info({ id }, "[AAI] Session started");
+        });
+        rt.on("close", (code: number, reason: string) => {
+          isReady = false;
+          isConnecting = false;
+          logger.info({ code, reason }, "[AAI] Session closed");
+        });
+        rt.on("error", (err: any) => {
+          // Prevent unhandled rejection crashes
+          logger.error({ err }, "[AAI] Transcriber Error");
+          isReady = false;
+          isConnecting = false;
+        });
+
+        await rt.connect();
+        logger.info("[AAI] Connected successfully");
+      } catch (err) {
+        logger.error({ err }, "[AAI] Error during connection");
+        rt = null;
+        isReady = false;
+        isConnecting = false;
+        throw err;
+      }
+    };
+
+    const ensureTranscriber = async () => {
+      if ((!rt || !isReady) && threadId && !isInterviewStarting) {
+        logger.info(
+          { threadId },
+          "[AAI] Re-establishing transcriber session...",
+        );
+        try {
+          await createAndConnectTranscriber();
+        } catch (err) {
+          logger.error({ err }, "[AAI] Failed to auto-reconnect transcriber");
+        }
+      }
+    };
+
+    const closeTranscriber = async () => {
+      const transcriberToClose = rt;
+      rt = null;
+      isReady = false;
+      isConnecting = false;
+
+      if (transcriberToClose) {
+        try {
+          // If already closing or closed, this might throw but we catch it
+          await transcriberToClose.close();
+        } catch (e) {
+          logger.debug(
+            { err: e },
+            "[AAI] Error during closeTranscriber (ignored)",
+          );
+        }
+      }
+      audioBuffer = Buffer.alloc(0);
+      if (audioFlushTimeout) {
+        clearTimeout(audioFlushTimeout);
+        audioFlushTimeout = null;
+      }
     };
 
     const sendConversationHistory = async () => {
@@ -309,23 +427,45 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             )) as any;
 
             const aiText = (result.messages.at(-1) as any).content;
-            if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "text",
-                  content: aiText,
-                  isFinished: !!result.isFinished,
-                }),
-              );
+            logger.info(
+              { threadId, aiTextLength: aiText?.length },
+              "[START] AI Initial Response",
+            );
 
-              if (result.isFinished && rt) {
-                try {
-                  await rt.close();
-                } catch (e) {
-                  /* ignore */
+            if (ws.readyState === ws.OPEN) {
+              const codingInfo = parseCodingMode(aiText);
+
+              if (codingInfo.isCoding) {
+                logger.info(
+                  { language: codingInfo.language },
+                  "[START] Coding mode detected in initial response",
+                );
+
+                const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
+                if (preText) {
+                  ws.send(JSON.stringify({ type: "text", content: preText }));
                 }
-                rt = null;
-                isReady = false;
+
+                ws.send(
+                  JSON.stringify({
+                    type: "coding_question",
+                    language: codingInfo.language,
+                    questionText: codingInfo.questionText,
+                    initialCode: "",
+                  }),
+                );
+              } else {
+                ws.send(
+                  JSON.stringify({
+                    type: "text",
+                    content: aiText,
+                    isFinished: !!result.isFinished,
+                  }),
+                );
+              }
+
+              if (result.isFinished) {
+                await closeTranscriber();
               }
             }
 
@@ -342,16 +482,8 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           logger.info({ threadId, userId }, "[WS] Pause request");
 
-          // Disconnect transcriber to stop billing
-          if (rt) {
-            try {
-              await rt.close();
-            } catch (e) {
-              /* ignore */
-            }
-            rt = null;
-            isReady = false;
-          }
+          // Disconnect transcriber
+          await closeTranscriber();
 
           // Update interview status
           if (threadId) {
@@ -476,16 +608,95 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           if (!result.success) return;
           const data = result.data;
 
-          if (rt && isReady) {
-            let chunk = Buffer.from(data.chunk, "base64");
+          // Auto-reconnect if needed
+          await ensureTranscriber();
 
-            if (chunk.length < 100) {
-              logger.debug({ length: chunk.length, threadId }, "[WS] Received unusually small or empty audio chunk");
+          if (rt && isReady) {
+            try {
+              let chunk = Buffer.from(data.chunk, "base64");
+
+              if (
+                chunk.length >= 44 &&
+                chunk.slice(0, 4).toString() === "RIFF"
+              ) {
+                chunk = chunk.slice(44);
+              }
+
+              // Accumulate in buffer
+              audioBuffer = Buffer.concat([audioBuffer, chunk]);
+
+              const TARGET_SIZE = 8000;
+              const MAX_SIZE = 32000;
+              const MIN_SIZE = 1600;
+
+              // Clear any pending flush
+              if (audioFlushTimeout) {
+                clearTimeout(audioFlushTimeout);
+                audioFlushTimeout = null;
+              }
+
+              // Send full chunks
+              while (audioBuffer.length >= TARGET_SIZE) {
+                const chunkToSend = audioBuffer.slice(0, MAX_SIZE);
+                rt.sendAudio(chunkToSend);
+                audioBuffer = audioBuffer.slice(chunkToSend.length);
+              }
+
+              // If we have leftovers, set a timeout to flush them if no new audio arrives
+              if (audioBuffer.length >= MIN_SIZE) {
+                audioFlushTimeout = setTimeout(() => {
+                  if (rt && isReady && audioBuffer.length >= MIN_SIZE) {
+                    rt.sendAudio(audioBuffer);
+                    audioBuffer = Buffer.alloc(0);
+                  }
+                }, 500); // 500ms wait before flushing tail
+              }
+            } catch (err: any) {
+              if (err.message?.includes("Socket is not open")) {
+                logger.debug(
+                  "[AAI] Attempted to send audio to a closed session",
+                );
+                isReady = false;
+              } else {
+                logger.error({ err }, "[AAI] Error sending audio");
+              }
             }
-            if (chunk.length >= 44 && chunk.slice(0, 4).toString() === "RIFF") {
-              chunk = chunk.slice(44);
+          }
+        } else if (rawData.type === "code_submission") {
+          const result = wsCodeSchema.safeParse(rawData);
+          if (!result.success) return;
+
+          logger.info({ threadId, userId }, "[WS] Code submission received");
+
+          try {
+            isProcessingTurn = true;
+
+            const submitText = `I have submitted my code in ${result.data.language || "the requested language"}:\n\n\`\`\`\n${result.data.content}\n\`\`\``;
+
+            const graphResult = (await invokeWithTimeout(
+              graphApp.invoke(
+                { messages: [{ role: "user", content: submitText }] },
+                { configurable: { thread_id: threadId } },
+              ),
+              45000,
+              "AI evaluation timed out.",
+            )) as any;
+
+            const aiEvaluation = extractAIResponse(graphResult.messages);
+
+            if (ws.readyState === ws.OPEN) {
+              ws.send(
+                JSON.stringify({
+                  type: "text",
+                  content: aiEvaluation,
+                  isFinished: !!graphResult.isFinished,
+                }),
+              );
             }
-            rt.sendAudio(chunk);
+          } catch (err: any) {
+            logger.error({ err }, "[CODE_SUBMIT] Error");
+          } finally {
+            isProcessingTurn = false;
           }
         }
       } catch (err: any) {
@@ -497,13 +708,7 @@ export const setupWebSocket = (wss: WebSocketServer) => {
       logger.info({ userId }, "WebSocket client disconnected");
       isInterviewStarting = false;
 
-      if (rt) {
-        try {
-          await rt.close();
-        } catch (e) {
-          /* ignore */
-        }
-      }
+      await closeTranscriber();
 
       // If interview was in-progress when disconnected, auto-pause it
       if (threadId) {

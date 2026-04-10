@@ -1,5 +1,6 @@
 import rateLimit from "express-rate-limit";
 import { RateLimitError } from "../lib/errors";
+import { MESSAGES } from "../config/constants";
 
 export const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -7,7 +8,7 @@ export const globalRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next) => {
-    next(new RateLimitError());
+    next(new RateLimitError(MESSAGES.RATE_LIMIT.DEFAULT));
   },
 });
 
@@ -17,7 +18,7 @@ export const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next) => {
-    next(new RateLimitError("Too many login attempts. Please try again after 15 minutes."));
+    next(new RateLimitError(MESSAGES.RATE_LIMIT.AUTH));
   },
 });
 
@@ -27,6 +28,6 @@ export const interviewRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next) => {
-    next(new RateLimitError("Interview session limit reached. Please try again later."));
+    next(new RateLimitError(MESSAGES.RATE_LIMIT.INTERVIEW));
   },
 });

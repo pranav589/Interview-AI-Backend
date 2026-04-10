@@ -1,18 +1,23 @@
-import { env } from "../config/env";
 import { createModuleLogger } from "../lib/logger";
 import {
-  Annotation,
-  MessagesAnnotation,
   StateGraph,
+  StateSchema,
+  MessagesValue,
+  ReducedValue,
   START,
   END,
 } from "@langchain/langgraph";
-import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts";
+import {
+  ChatPromptTemplate,
+  MessagesPlaceholder,
+} from "@langchain/core/prompts";
 import { AIMessage } from "@langchain/core/messages";
 import { MongoDBSaver } from "@langchain/langgraph-checkpoint-mongodb";
 import { MongoClient } from "mongodb";
-import { createLLM } from "../lib/llm";
+import { invokeStructuredLLMWithFallback } from "../lib/llm-with-fallback";
 import { getInterviewerSystemPrompt } from "../lib/prompts";
+import { isFeatureEnabled } from "./feature-flags";
+import { z } from "zod";
 
 let checkpointer: MongoDBSaver | null = null;
 export let graphApp: any;
@@ -25,30 +30,29 @@ export const setupGraph = async (client: MongoClient) => {
     checkpointCollectionName: "checkpoints",
   });
   graphApp = workflow.compile({ checkpointer });
-  logger.info("LangGraph checkpointer initialized using shared MongoDB connection");
+  logger.info(
+    "LangGraph checkpointer initialized using shared MongoDB connection",
+  );
 };
 
 const logger = createModuleLogger("graph");
 
-const InterviewState = Annotation.Root({
-  ...MessagesAnnotation.spec,
-  resume: Annotation<string>(),
-  interviewType: Annotation<string>({ value: (_, y) => y, default: () => "technical" }),
-  difficultyLevel: Annotation<string>({ value: (_, y) => y, default: () => "intermediate" }),
-  jobTitle: Annotation<string>({ value: (_, y) => y, default: () => "" }),
-  company: Annotation<string>({ value: (_, y) => y, default: () => "" }),
-  customTopics: Annotation<string>({ value: (_, y) => y, default: () => "" }),
-  jobDescription: Annotation<string>({ value: (_, y) => y, default: () => "" }),
-  companyStyle: Annotation<string>({ value: (_, y) => y, default: () => "" }),
-  questionCount: Annotation<number>({
-    reducer: (x, y) => x + y,
-    default: () => 0,
+const InterviewState = new StateSchema({
+  messages: MessagesValue,
+  resume: z.string().optional().default(""),
+  interviewType: z.string().default("technical"),
+  difficultyLevel: z.string().default("intermediate"),
+  jobTitle: z.string().default(""),
+  company: z.string().default(""),
+  customTopics: z.string().default(""),
+  jobDescription: z.string().default(""),
+  companyStyle: z.string().default(""),
+  questionCount: new ReducedValue(z.number().default(0), {
+    reducer: (x: number, y: number) => x + y,
   }),
-  maxQuestions: Annotation<number>({ value: (_, y) => y, default: () => 5 }),
-  isFinished: Annotation<boolean>({
-    value: (_, y) => y,
-    default: () => false,
-  }),
+  maxQuestions: z.number().default(5),
+  isFinished: z.boolean().default(false),
+  isCodingMode: z.boolean().default(false),
 });
 
 type InterviewStateType = typeof InterviewState.State;
@@ -59,8 +63,6 @@ const interviewerNode = async (
   logger.debug(
     `Entering interviewerNode. Question Count: ${state.questionCount}`,
   );
-
-  const llm = createLLM({ timeout: 15000 });
 
   if (state.questionCount >= state.maxQuestions) {
     logger.info("Interview limit reached.");
@@ -74,6 +76,8 @@ const interviewerNode = async (
     };
   }
 
+  const codingModeEnabled = await isFeatureEnabled("coding_mode_enabled");
+  
   const systemPrompt = getInterviewerSystemPrompt({
     interviewType: state.interviewType,
     difficultyLevel: state.difficultyLevel,
@@ -85,6 +89,8 @@ const interviewerNode = async (
     customTopics: state.customTopics,
     jobDescription: state.jobDescription,
     companyStyle: state.companyStyle,
+    isCodingMode: codingModeEnabled ? state.isCodingMode : false,
+    codingModeEnabled,
   });
 
   const promptTemplate = ChatPromptTemplate.fromMessages([
@@ -92,15 +98,36 @@ const interviewerNode = async (
     new MessagesPlaceholder("messages"),
   ]);
 
+  const formattedMessages = await promptTemplate.formatMessages({
+    messages: state.messages,
+  });
+
+  const ResponseSchema = z.object({
+    content: z
+      .string()
+      .describe(
+        "The text response to the candidate, including the coding block if applicable.",
+      ),
+    isCodingMode: z
+      .boolean()
+      .describe(
+        "Whether the current response initiates or continues CODING_MODE.",
+      ),
+  });
+
   try {
-    const chain = promptTemplate.pipe(llm);
-    const response = await chain.invoke({
-      messages: state.messages,
-    });
+    const result = await invokeStructuredLLMWithFallback(
+      ResponseSchema,
+      formattedMessages,
+      {
+        timeout: 15000,
+      },
+    );
 
     return {
-      messages: [response],
+      messages: [new AIMessage(result.content)],
       questionCount: 1,
+      isCodingMode: codingModeEnabled ? result.isCodingMode : false,
     };
   } catch (err: unknown) {
     if (err instanceof Error) {

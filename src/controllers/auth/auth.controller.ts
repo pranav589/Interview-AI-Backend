@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { env } from "../../config/env";
 import { createModuleLogger } from "../../lib/logger";
+import { MESSAGES } from "../../config/constants";
 
 const logger = createModuleLogger("auth");
 import { loginSchema, registerSchema, forgotPasswordSchema, resetPasswordSchema } from "./auth.schema";
@@ -52,7 +53,7 @@ function getGoogleClient() {
 export const registerHandler = asyncHandler(async (req: Request, res: Response) => {
   const result = registerSchema.safeParse(req.body);
   if (!result.success) {
-    throw new ValidationError("Invalid data!");
+    throw new ValidationError(MESSAGES.AUTH.INVALID_DATA);
   }
 
   const { name, email, password } = result.data as {
@@ -65,7 +66,7 @@ export const registerHandler = asyncHandler(async (req: Request, res: Response) 
   const existingUser = await User.findOne({ email: normalizedEmail });
 
   if (existingUser) {
-    throw new AppError("Email already exists. Please try with a different email", 409);
+    throw new AppError(MESSAGES.AUTH.EMAIL_EXISTS, 409);
   }
 
   const passwordHash = await hashPassword(password);
@@ -94,7 +95,7 @@ export const registerHandler = asyncHandler(async (req: Request, res: Response) 
 
   await sendEmail(
     newUser.email,
-    "Verify your email",
+    MESSAGES.AUTH.VERIFY_EMAIL_SUBJECT,
     `
       <p>Please verify your email by clicking this link:</p>
       <p><a href="${verifyUrl}">${verifyUrl}</a></p>
@@ -109,6 +110,9 @@ export const registerHandler = asyncHandler(async (req: Request, res: Response) 
       role: newUser.role,
       isEmailVerified: newUser.isEmailVerified,
       hasResume: !!newUser.resume,
+      subscriptionTier: newUser.subscriptionTier,
+      credits: newUser.credits,
+      onboardingCompleted: newUser.onboardingCompleted,
     },
   });
 });
@@ -146,7 +150,7 @@ export const verifyEmailHandler = asyncHandler(async (req: Request, res: Respons
 export const loginHandler = asyncHandler(async (req: Request, res: Response) => {
   const result = loginSchema.safeParse(req.body);
   if (!result.success) {
-    throw new ValidationError("Invalid data!");
+    throw new ValidationError(MESSAGES.AUTH.INVALID_DATA);
   }
 
   const { email, password, twoFactorCode } = result.data as {
@@ -159,30 +163,30 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
   const user = await User.findOne({ email: normalizedEmail });
 
   if (!user) {
-    throw new UnauthorizedError("Invalid email or password");
+    throw new UnauthorizedError(MESSAGES.AUTH.INVALID_CREDENTIALS);
   }
 
   const passwordCheck = await checkPassword(password, user.passwordHash);
 
   if (!passwordCheck) {
-    throw new UnauthorizedError("Invalid email or password");
+    throw new UnauthorizedError(MESSAGES.AUTH.INVALID_CREDENTIALS);
   }
 
   // if email is not verified, dont allow to login
   if (!user.isEmailVerified) {
-    throw new ForbiddenError("Please verify your email before login.");
+    throw new ForbiddenError(MESSAGES.AUTH.VERIFY_REQUIRED);
   }
 
   if (user.twoFactorEnabled) {
     if (!twoFactorCode || typeof twoFactorCode !== "string") {
       return res.status(200).json({
-        message: "Two factor authentication code required",
+        message: MESSAGES.AUTH.TWO_FACTOR_REQUIRED,
         twoFactorRequired: true,
       });
     }
 
     if (!user.twoFactorSecret) {
-      throw new AppError("Two factor misconfigured for this account", 400);
+      throw new AppError(MESSAGES.AUTH.TWO_FACTOR_MISCONFIGURED, 400);
     }
     //verify the code using otplib
     const isValidCode = await verify({
@@ -191,7 +195,7 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
     });
 
     if (!isValidCode.valid) {
-      throw new ValidationError("Invalid two factor code");
+      throw new ValidationError(MESSAGES.AUTH.TWO_FACTOR_INVALID);
     }
   }
 
@@ -222,7 +226,7 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
   });
 
   return res.status(200).json({
-    message: "Login success",
+    message: MESSAGES.AUTH.LOGIN_SUCCESS,
     user: {
       id: user.id,
       email: user.email,
@@ -231,6 +235,9 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
       twoFactorEnabled: user.twoFactorEnabled,
       name: user.name,
       hasResume: !!user.resume,
+      subscriptionTier: user.subscriptionTier,
+      credits: user.credits,
+      onboardingCompleted: user.onboardingCompleted,
     },
   });
 });
@@ -239,7 +246,7 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
   const token = req.cookies?.refreshToken as string | undefined;
 
   if (!token) {
-    throw new UnauthorizedError("Refresh token not found");
+    throw new UnauthorizedError(MESSAGES.AUTH.REFRESH_TOKEN_NOT_FOUND);
   }
 
   const payload = verifyRefreshToken(token);
@@ -290,6 +297,9 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
       twoFactorEnabled: user.twoFactorEnabled,
       name: user.name,
       hasResume: !!user.resume,
+      subscriptionTier: user.subscriptionTier,
+      credits: user.credits,
+      onboardingCompleted: user.onboardingCompleted,
     },
   });
 });
@@ -341,7 +351,7 @@ export const forgotPasswordHandler = asyncHandler(async (req: Request, res: Resp
 
   await sendEmail(
     user.email,
-    "Reset your password",
+    MESSAGES.AUTH.RESET_PASSWORD_SUBJECT,
     `
       <p>
         You requested for a password reset. Click on below link to reset password.
@@ -352,8 +362,7 @@ export const forgotPasswordHandler = asyncHandler(async (req: Request, res: Resp
     `,
   );
   return res.json({
-    message:
-      "If an account with this email exists, we will send you a reset link",
+    message: MESSAGES.AUTH.RESET_LINK_SENT,
   });
 });
 
@@ -375,7 +384,7 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
   logger.debug({ user }, "Reset password user found");
 
   if (!user) {
-    throw new ValidationError("Invalid or expired token");
+    throw new ValidationError(MESSAGES.AUTH.INVALID_OR_EXPIRED_TOKEN);
   }
 
   const newPasswordHash = await hashPassword(password);
@@ -389,7 +398,7 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
   await user.save();
 
   return res.json({
-    message: "Password reset successfully",
+    message: MESSAGES.AUTH.RESET_SUCCESS,
   });
 });
 
@@ -408,14 +417,14 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
   const code = req.query.code as string | undefined;
 
   if (!code) {
-    throw new ValidationError("Missing code in callback");
+    throw new ValidationError(MESSAGES.AUTH.GOOGLE_AUTH_MISSING_CODE);
   }
   
   const client = getGoogleClient();
 
   const { tokens } = await client.getToken(code);
   if (!tokens.id_token) {
-    throw new ValidationError("id_token not present");
+    throw new ValidationError(MESSAGES.AUTH.GOOGLE_AUTH_ID_TOKEN_MISSING);
   }
 
   //verify id token and read use info
@@ -431,7 +440,7 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
   const emailVerified = payload?.email_verified;
 
   if (!email || !emailVerified) {
-    throw new ValidationError("Google email account is not verified");
+    throw new ValidationError(MESSAGES.AUTH.GOOGLE_EMAIL_NOT_VERIFIED);
   }
 
   const normalizedEmail = email.toLowerCase().trim();
@@ -498,6 +507,9 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
     name: user.name,
     role: user.role,
     hasResume: !!user.resume,
+    subscriptionTier: user.subscriptionTier,
+    credits: user.credits,
+    onboardingCompleted: user.onboardingCompleted,
   });
 
   return res.redirect(
