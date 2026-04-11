@@ -19,6 +19,7 @@ const DEFAULT_FLAGS = [
   { key: "stat_total_interviews_enabled", value: true, description: "Total interviews stat on dashboard" },
   { key: "stat_average_score_enabled", value: true, description: "Average score stat on dashboard" },
   { key: "stat_total_time_enabled", value: true, description: "Total focus time stat on dashboard" },
+  { key: "interview_peer_enabled", value: true, description: "Access to peer-to-peer human interviews" },
 ];
 
 export async function seedFeatureFlags() {

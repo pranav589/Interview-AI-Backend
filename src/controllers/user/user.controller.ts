@@ -33,6 +33,10 @@ export const getProfile = asyncHandler(async (req: Request, res: Response) => {
       lastCreditReset: user.lastCreditReset,
       weeklyEmailDigest: user.weeklyEmailDigest,
       onboardingCompleted: user.onboardingCompleted,
+      interviewerStatus: user.interviewerStatus,
+      maxCandidateExp: user.maxCandidateExp,
+      expertiseTags: user.expertiseTags,
+      interviewerApplication: user.interviewerApplication,
     },
   });
 });

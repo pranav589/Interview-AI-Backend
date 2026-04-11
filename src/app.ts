@@ -11,6 +11,7 @@ import authRouter from "./routes/auth.routes";
 import userRouter from "./routes/user.routes";
 import adminRouter from "./routes/admin.routes";
 import interviewRouter from "./routes/interview.routes";
+import interviewerRouter from "./routes/interviewer.routes";
 import requireAuth from "./middleware/requireAuth";
 import cors from "cors";
 
@@ -67,6 +68,7 @@ app.use("/api/v1/auth", authRateLimiter, authRouter);
 app.use("/api/v1/user", requireAuth, userRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/interview", requireAuth, interviewRouter);
+app.use("/api/v1/interviewer", requireAuth, interviewerRouter);
 
 app.use(errorHandler);
 

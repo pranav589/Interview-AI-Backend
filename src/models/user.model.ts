@@ -71,10 +71,24 @@ const userSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    interviewerStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+    },
+    interviewerApplication: {
+      answers: [String],
+      aiFeedback: String,
+    },
+    maxCandidateExp: {
+      type: Number,
+      default: 0,
+    },
+    expertiseTags: [String],
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 userSchema.index({ resetPasswordToken: 1 }, { sparse: true }); // Password reset lookup

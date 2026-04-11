@@ -39,6 +39,20 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URL: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(), // Fallback LLM (Gemini)
   GROQ_API_KEY: z.string().optional(), // Fallback LLM (Groq)
+
+  // VideoSDK Config
+  VIDEOSDK_API_KEY: z.string().min(1),
+  VIDEOSDK_API_SECRET: z.string().min(1),
+  VIDEOSDK_ENABLE_RECORDING: z
+    .string()
+    .default("false")
+    .transform((val) => val === "true"),
+
+  // Audio/Transcription Config
+  AI_INTERVIEW_SILENCE_THRESHOLD: z
+    .string()
+    .default("5000") // 5 seconds default for thinking time
+    .transform((val) => parseInt(val, 10)),
 });
 
 const _env = envSchema.safeParse(process.env);

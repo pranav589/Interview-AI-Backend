@@ -130,3 +130,31 @@ function getDifficultyGuidelines(difficulty: string): string {
       return "";
   }
 }
+
+export function getVettingPrompt(resume: string, answers: string[]): string {
+  return `
+You are an expert recruitment consultant and interviewer coach. 
+Your task is to analyze a potential interviewer's resume and their answers to vetting questions to determine if they are qualified to conduct interviews on our platform.
+
+Candidate Resume:
+${resume || "No resume provided."}
+
+Vetting Questions & Answers:
+${answers.map((a, i) => `Q${i + 1}: ${a}`).join("\n")}
+
+EVALUATION CRITERIA:
+1. Professional Experience: Does the resume show relevant industry experience (software engineering, management, etc.)?
+2. Communication & Empathy: Do the answers show a professional and empathetic approach to interviewing?
+3. Technical Depth: Does the resume indicate sufficient depth to evaluate others?
+
+YOUR OUTPUT (JSON ONLY):
+{
+  "status": "approved" | "rejected",
+  "aiFeedback": "Brief explanation of your decision",
+  "maxCandidateExp": number, // Recommend the MAX years of experience a candidate can have for this interviewer to be effective (e.g. 2, 5, 10).
+  "expertiseTags": ["tag1", "tag2"] // Up to 5 tags (e.g. "React", "System Design", "Backend")
+}
+
+If the user is fit to be an interviewer, be generous but realistic about the maxCandidateExp. For example, someone with 5 years experience can usually interview candidates with up to 3-4 years experience.
+`.trim();
+}

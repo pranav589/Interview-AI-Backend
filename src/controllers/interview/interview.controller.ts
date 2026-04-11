@@ -11,6 +11,7 @@ import {
 
 import { Interview } from "../../models/interview.model";
 import { User } from "../../models/user.model";
+import { Booking } from "../../models/booking.model";
 import { graphApp } from "../../utils/graph";
 import { createModuleLogger } from "../../lib/logger";
 import { asyncHandler } from "../../lib/asyncHandler";
@@ -180,35 +181,82 @@ export const getInterviewStats = asyncHandler(
     const authUser = (req as AuthenticatedRequest).user;
     const userId = new mongoose.Types.ObjectId(authUser.id);
 
-    // Basic Stats (Aggregation)
-    const aggregationResult = await Interview.aggregate([
+    const aiAggregation = await Interview.aggregate([
       { $match: { userId: userId, status: "completed" } },
       {
         $group: {
           _id: null,
-          totalInterviews: { $sum: 1 },
-          avgScore: { $avg: "$score" },
-          totalDuration: { $sum: "$actualDuration" },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          totalInterviews: 1,
-          avgScore: { $round: ["$avgScore", 0] },
-          totalDuration: 1,
+          count: { $sum: 1 },
+          score: { $avg: "$score" },
+          time: { $sum: "$actualDuration" },
         },
       },
     ]);
 
-    const stats =
-      aggregationResult.length > 0
-        ? aggregationResult[0]
-        : {
-            totalInterviews: 0,
-            avgScore: 0,
-            totalDuration: 0,
-          };
+    const humanCandidateAggregation = await Booking.aggregate([
+      { $match: { candidateId: userId, status: "completed" } },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          score: { $avg: "$interviewerScore" }, // 0-5
+          time: { $sum: "$actualDuration" },
+        },
+      },
+    ]);
+
+    const aiStats = aiAggregation[0] || { count: 0, score: 0, time: 0 };
+    const humanCandStats = humanCandidateAggregation[0] || {
+      count: 0,
+      score: 0,
+      time: 0,
+    };
+
+    // Normalize Human Candidate scores
+    humanCandStats.score = (humanCandStats.score || 0) * 20;
+
+    // Total Candidate Stats
+    const totalCount = aiStats.count + humanCandStats.count;
+    let totalScore = 0;
+    if (totalCount > 0) {
+      totalScore = Math.round(
+        (aiStats.score * aiStats.count +
+          humanCandStats.score * humanCandStats.count) /
+          totalCount,
+      );
+    }
+    const totalTime = aiStats.time + humanCandStats.time;
+
+    // Human Interview Stats (User as Interviewer)
+    const humanInterviewerAggregation = await Booking.aggregate([
+      { $match: { interviewerId: userId, status: "completed" } },
+      {
+        $group: {
+          _id: null,
+          count: { $sum: 1 },
+          time: { $sum: "$actualDuration" },
+        },
+      },
+    ]);
+
+    const interviewerStats = humanInterviewerAggregation[0] || {
+      count: 0,
+      time: 0,
+    };
+
+    const candidate = {
+      total: { count: totalCount, score: totalScore, time: totalTime },
+      ai: {
+        count: aiStats.count,
+        score: Math.round(aiStats.score),
+        time: aiStats.time,
+      },
+      human: {
+        count: humanCandStats.count,
+        score: Math.round(humanCandStats.score),
+        time: humanCandStats.time,
+      },
+    };
 
     // Radar Data (Communication, Technical, Confidence)
     const radarAggregation = await Feedback.aggregate([
@@ -297,18 +345,21 @@ export const getInterviewStats = asyncHandler(
     ]);
 
     let percentile = 0;
-    if (allUsersStats.length > 1 && stats.totalInterviews > 0) {
+    if (allUsersStats.length > 1 && candidate.total.count > 0) {
       const lowerScores = allUsersStats.filter(
-        (u) => u.avgScore < stats.avgScore,
+        (u) => u.avgScore < candidate.total.score,
       ).length;
       percentile = Math.round((lowerScores / (allUsersStats.length - 1)) * 100);
-    } else if (stats.totalInterviews > 0) {
+    } else if (candidate.total.count > 0) {
       percentile = 100; // Only user
     }
 
     return res.status(200).json({
       data: {
-        ...stats,
+        candidate,
+        interviewer: {
+          total: interviewerStats,
+        },
         radarData,
         streak,
         percentile,
