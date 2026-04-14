@@ -225,6 +225,14 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
     maxAge: 1 * 60 * 60 * 1000, // 1 hour (token itself is 30m)
   });
 
+  res.cookie("isLoggedIn", "true", {
+    httpOnly: false,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
   return res.status(200).json({
     message: MESSAGES.AUTH.LOGIN_SUCCESS,
     user: {
@@ -287,6 +295,14 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
+  res.cookie("isLoggedIn", "true", {
+    httpOnly: false,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
   return res.status(200).json({
     message: "Token refreshed",
     user: {
@@ -314,6 +330,7 @@ export const logoutHandler = (req: Request, res: Response) => {
   };
   res.clearCookie("refreshToken", cookieOptions);
   res.clearCookie("accessToken", cookieOptions);
+  res.clearCookie("isLoggedIn", { ...cookieOptions, httpOnly: false });
   return res.status(200).json({
     message: "Logged out",
   });
@@ -498,6 +515,14 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
     sameSite: isProd ? "none" : "lax",
     path: "/",
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
+  });
+
+  res.cookie("isLoggedIn", "true", {
+    httpOnly: false,
+    secure: isProd,
+    sameSite: isProd ? "none" : "lax",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   const frontendUrl = env.FRONTEND_URL;
