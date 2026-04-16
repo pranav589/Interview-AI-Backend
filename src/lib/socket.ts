@@ -195,24 +195,28 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           );
 
           if (ws.readyState === ws.OPEN) {
+            const isCodingResult = result.isCodingMode;
             const codingInfo = parseCodingMode(aiText);
 
-            if (codingInfo.isCoding) {
+            if (isCodingResult || codingInfo.isCoding) {
               logger.info(
-                { language: codingInfo.language },
+                { language: codingInfo.language || "text", fromGraph: isCodingResult },
                 "[FLOW] Coding mode detected",
               );
 
-              const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
-              if (preText) {
-                ws.send(JSON.stringify({ type: "text", content: preText }));
+              // Only send preText if we actually have coding tags to split the message
+              if (codingInfo.isCoding) {
+                const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
+                if (preText) {
+                  ws.send(JSON.stringify({ type: "text", content: preText }));
+                }
               }
 
               ws.send(
                 JSON.stringify({
                   type: "coding_question",
-                  language: codingInfo.language,
-                  questionText: codingInfo.questionText,
+                  language: codingInfo.language || "javascript",
+                  questionText: codingInfo.questionText || aiText,
                   initialCode: "",
                 }),
               );
@@ -342,6 +346,7 @@ export const setupWebSocket = (wss: WebSocketServer) => {
               JSON.stringify({
                 type: "history",
                 messages: existingMessages,
+                isCodingMode: !!state.values.isCodingMode,
               }),
             );
           }
@@ -433,24 +438,28 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             );
 
             if (ws.readyState === ws.OPEN) {
+              const isCodingResult = result.isCodingMode;
               const codingInfo = parseCodingMode(aiText);
 
-              if (codingInfo.isCoding) {
+              if (isCodingResult || codingInfo.isCoding) {
                 logger.info(
-                  { language: codingInfo.language },
+                  { language: codingInfo.language || "text", fromGraph: isCodingResult },
                   "[START] Coding mode detected in initial response",
                 );
 
-                const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
-                if (preText) {
-                  ws.send(JSON.stringify({ type: "text", content: preText }));
+                // Only send preText if we actually have coding tags to split the message
+                if (codingInfo.isCoding) {
+                  const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
+                  if (preText) {
+                    ws.send(JSON.stringify({ type: "text", content: preText }));
+                  }
                 }
 
                 ws.send(
                   JSON.stringify({
                     type: "coding_question",
-                    language: codingInfo.language,
-                    questionText: codingInfo.questionText,
+                    language: codingInfo.language || "typescript",
+                    questionText: codingInfo.questionText || aiText,
                     initialCode: "",
                   }),
                 );
