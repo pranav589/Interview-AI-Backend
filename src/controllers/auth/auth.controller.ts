@@ -57,36 +57,30 @@ function getGoogleClient() {
  */
 function getCookieOptions(req: Request, maxAge: number) {
   const isProd = env.NODE_ENV === "production";
-  const host = req.get("host") || "";
-  const cookieDomain = env.COOKIE_DOMAIN || "";
-  
-  // Base configuration
-  const options: any = {
+
+  if (!isProd) {
+    // Development: no domain, SameSite=Lax (works on localhost)
+    return {
+      httpOnly: true,
+      path: "/",
+      maxAge,
+      secure: false,
+      sameSite: "lax" as const,
+    };
+  }
+
+  // Production: ALWAYS use the shared parent domain
+  // This makes the cookie available to www. AND api. simultaneously
+  return {
     httpOnly: true,
     path: "/",
     maxAge,
-    secure: isProd, // Must be true in production for most browsers
+    secure: true,             // Required for SameSite=Lax on https
+    sameSite: "lax" as const, // Lax is fine since www. and api. share the parent domain
+    domain: env.COOKIE_DOMAIN || ".interviewai.in.net", // The dot prefix means "all subdomains"
   };
-
-  // Subdomain Detection Logic
-  // If the current host ends with our custom domain, use it + Lax
-  const isCustomDomain = cookieDomain && host.endsWith(cookieDomain.startsWith('.') ? cookieDomain.slice(1) : cookieDomain);
-
-  if (isCustomDomain && isProd) {
-    options.sameSite = "lax";
-    options.domain = cookieDomain;
-  } else if (isProd) {
-    // If we are in production but NOT on the custom domain (e.g. testing on Render URL),
-    // we MUST use SameSite=None + Secure to allow cross-site cookies.
-    options.sameSite = "none";
-    // We EXPLICITLY omit the domain here so the browser uses the current host
-  } else {
-    // Development fallback
-    options.sameSite = "lax";
-  }
-
-  return options;
 }
+
 
 
 export const registerHandler = asyncHandler(async (req: Request, res: Response) => {
