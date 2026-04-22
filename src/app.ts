@@ -1,9 +1,6 @@
 import express from "express";
 import helmet from "helmet";
-import { 
-  globalRateLimiter, 
-  authRateLimiter 
-} from "./middleware/rateLimiter";
+import { globalRateLimiter, authRateLimiter } from "./middleware/rateLimiter";
 import { errorHandler } from "./middleware/errorHandler";
 import cookieParser from "cookie-parser";
 import configRouter from "./routes/config.routes";
@@ -21,9 +18,11 @@ import { streamTTS } from "./controllers/interview/tts.controller";
 const app = express();
 
 // Security headers
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 
 // Trust proxy for secure cookies
 app.set("trust proxy", 1);
@@ -41,7 +40,13 @@ const corsOptions = {
   origin: (origin: string | undefined, callback: any) => {
     const frontendUrl = env.FRONTEND_URL.replace(/\/$/, "");
     const allowedOrigins = [frontendUrl];
-    
+
+    if (frontendUrl.includes("://www.")) {
+      allowedOrigins.push(frontendUrl.replace("://www.", "://"));
+    } else {
+      allowedOrigins.push(frontendUrl.replace("://", "://www."));
+    }
+
     if (env.NODE_ENV === "development") {
       allowedOrigins.push("http://localhost:3000", "http://localhost:3001");
     }
