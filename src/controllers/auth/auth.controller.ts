@@ -50,6 +50,45 @@ function getGoogleClient() {
   });
 }
 
+/**
+ * Universal Cookie Option Generator
+ * Detects if the request is coming from the custom domain (shared root)
+ * or a secondary domain (like .onrender.com) and adjusts SameSite/Domain/Secure.
+ */
+function getCookieOptions(req: Request, maxAge: number) {
+  const isProd = env.NODE_ENV === "production";
+  const host = req.get("host") || "";
+  const cookieDomain = env.COOKIE_DOMAIN || "";
+  
+  // Base configuration
+  const options: any = {
+    httpOnly: true,
+    path: "/",
+    maxAge,
+    secure: isProd, // Must be true in production for most browsers
+  };
+
+  // Subdomain Detection Logic
+  // If the current host ends with our custom domain, use it + Lax
+  const isCustomDomain = cookieDomain && host.endsWith(cookieDomain.startsWith('.') ? cookieDomain.slice(1) : cookieDomain);
+
+  if (isCustomDomain && isProd) {
+    options.sameSite = "lax";
+    options.domain = cookieDomain;
+  } else if (isProd) {
+    // If we are in production but NOT on the custom domain (e.g. testing on Render URL),
+    // we MUST use SameSite=None + Secure to allow cross-site cookies.
+    options.sameSite = "none";
+    // We EXPLICITLY omit the domain here so the browser uses the current host
+  } else {
+    // Development fallback
+    options.sameSite = "lax";
+  }
+
+  return options;
+}
+
+
 export const registerHandler = asyncHandler(async (req: Request, res: Response) => {
   const result = registerSchema.safeParse(req.body);
   if (!result.success) {
@@ -209,23 +248,9 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
 
   const isProd = env.NODE_ENV === "production";
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
 
-  res.cookie("accessToken", accessToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 1 * 60 * 60 * 1000, // 1 hour (token itself is 30m)
-  });
+  res.cookie("accessToken", accessToken, getCookieOptions(req, 1 * 60 * 60 * 1000));
 
   return res.status(200).json({
     message: MESSAGES.AUTH.LOGIN_SUCCESS,
@@ -273,23 +298,9 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
 
   const isProd = env.NODE_ENV === "production";
 
-  res.cookie("refreshToken", newRefreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", newRefreshToken, getCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
 
-  res.cookie("accessToken", newAccessToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 1 * 60 * 60 * 1000, // 1 hour
-  });
+  res.cookie("accessToken", newAccessToken, getCookieOptions(req, 1 * 60 * 60 * 1000));
 
   return res.status(200).json({
     message: "Token refreshed",
@@ -309,14 +320,8 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const logoutHandler = (req: Request, res: Response) => {
-  const isProd = env.NODE_ENV === "production";
-  const cookieOptions = {
-    path: "/",
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax" as const,
-    domain: env.COOKIE_DOMAIN,
-  };
+  const options = getCookieOptions(req, 0); // maxAge 0 for clearing
+  const { maxAge, ...cookieOptions } = options;
   res.clearCookie("refreshToken", cookieOptions);
   res.clearCookie("accessToken", cookieOptions);
   return res.status(200).json({
@@ -489,23 +494,9 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
 
   const isProd = env.NODE_ENV === "production";
 
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 7 * 24 * 60 * 60 * 1000,
-  });
+  res.cookie("refreshToken", refreshToken, getCookieOptions(req, 7 * 24 * 60 * 60 * 1000));
 
-  res.cookie("accessToken", accessToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    domain: env.COOKIE_DOMAIN,
-    maxAge: 1 * 60 * 60 * 1000, // 1 hour
-  });
+  res.cookie("accessToken", accessToken, getCookieOptions(req, 1 * 60 * 60 * 1000));
 
   const frontendUrl = env.FRONTEND_URL;
   const userJson = JSON.stringify({
