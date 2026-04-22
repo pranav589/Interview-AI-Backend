@@ -9,13 +9,21 @@ import { AuthenticatedRequest } from "../types/express";
 const requireAuth = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
   let token = "";
 
-  if (req.cookies && req.cookies.accessToken) {
+  // Check Authorization header first (for server-side RSC calls)
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    token = authHeader.slice(7);
+  }
+
+  // Fallback: browser cookie (for client-side calls)
+  if (!token && req.cookies && req.cookies.accessToken) {
     token = req.cookies.accessToken;
   }
 
   if (!token) {
     throw new UnauthorizedError(MESSAGES.AUTH.NOT_AUTHENTICATED);
   }
+
 
   const payload = verifyAccessToken(token);
 
