@@ -212,16 +212,18 @@ export const loginHandler = asyncHandler(async (req: Request, res: Response) => 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 1 * 60 * 60 * 1000, // 1 hour (token itself is 30m)
   });
 
@@ -274,16 +276,18 @@ export const refreshHandler = asyncHandler(async (req: Request, res: Response) =
   res.cookie("refreshToken", newRefreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", newAccessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
@@ -310,7 +314,8 @@ export const logoutHandler = (req: Request, res: Response) => {
     path: "/",
     httpOnly: true,
     secure: isProd,
-    sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+    sameSite: "lax" as const,
+    domain: env.COOKIE_DOMAIN,
   };
   res.clearCookie("refreshToken", cookieOptions);
   res.clearCookie("accessToken", cookieOptions);
@@ -487,16 +492,18 @@ export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: 
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 7 * 24 * 60 * 60 * 1000,
   });
 
   res.cookie("accessToken", accessToken, {
     httpOnly: true,
     secure: isProd,
-    sameSite: isProd ? "none" : "lax",
+    sameSite: "lax",
     path: "/",
+    domain: env.COOKIE_DOMAIN,
     maxAge: 1 * 60 * 60 * 1000, // 1 hour
   });
 
