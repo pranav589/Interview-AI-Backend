@@ -7,7 +7,7 @@ import {
   START,
   END,
 } from "@langchain/langgraph";
-import { ToolNode } from "@langchain/langgraph/prebuilt";
+import { ToolNode } from "@langchain/langgraph/dist/prebuilt/index";
 
 import {
   ChatPromptTemplate,
