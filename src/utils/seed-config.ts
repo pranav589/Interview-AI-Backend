@@ -19,6 +19,10 @@ const DEFAULT_FLAGS = [
   { key: "stat_total_interviews_enabled", value: true, description: "Total interviews stat on dashboard" },
   { key: "stat_average_score_enabled", value: true, description: "Average score stat on dashboard" },
   { key: "stat_total_time_enabled", value: true, description: "Total focus time stat on dashboard" },
+  { key: "web_search_enabled", value: true, description: "Tavily web search for company context" },
+  { key: "hints_tool_enabled", value: true, description: "AI Socratic hints for candidates" },
+  { key: "code_eval_tool_enabled", value: true, description: "Deep code analysis tool" },
+  { key: "topic_tracker_tool_enabled", value: true, description: "Automated topic suggested tool" },
 ];
 
 export async function seedFeatureFlags() {
