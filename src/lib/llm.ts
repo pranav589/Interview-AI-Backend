@@ -9,10 +9,12 @@ export interface LLMOptions {
   jsonMode?: boolean;
   timeout?: number;
   maxRetries?: number;
+  tools?: any[];
+  maxTokens?: number;
 }
 
 export function createLLM(options: LLMOptions = {}) {
-  const { jsonMode = false, timeout = 30000, maxRetries = 2 } = options;
+  const { jsonMode = false, timeout = 30000, maxRetries = 2, maxTokens = 4096 } = options;
 
   return new ChatOpenAI({
     model: "openai/gpt-4o-mini",
@@ -20,6 +22,7 @@ export function createLLM(options: LLMOptions = {}) {
     configuration: { baseURL: "https://openrouter.ai/api/v1" },
     timeout,
     maxRetries,
+    maxTokens,
     ...(jsonMode && {
       modelKwargs: { response_format: { type: "json_object" } },
     }),
@@ -27,7 +30,7 @@ export function createLLM(options: LLMOptions = {}) {
 }
 
 export function createFallbackLLM(options: LLMOptions = {}) {
-  const { jsonMode = false, timeout = 30000, maxRetries = 1 } = options;
+  const { jsonMode = false, timeout = 30000, maxRetries = 1, maxTokens = 4096 } = options;
 
   // Only create if Groq API key is available
   if (!env.GROQ_API_KEY) {
@@ -41,6 +44,7 @@ export function createFallbackLLM(options: LLMOptions = {}) {
     configuration: { baseURL: "https://api.groq.com/openai/v1" },
     timeout,
     maxRetries,
+    maxTokens,
     ...(jsonMode && {
       modelKwargs: { response_format: { type: "json_object" } },
     }),

@@ -12,6 +12,11 @@ import { validateTicket } from "./ws-tickets";
 
 const logger = createModuleLogger("socket");
 
+const PARTIAL_TEXT_BACKPRESSURE_THRESHOLD_BYTES = 512 * 1024; // 512KB
+// AssemblyAI endpointing: set slightly above the UX silence window (6s),
+// so short thinking pauses don't become end_of_turn.
+const AAI_MIN_TURN_SILENCE_MS = 8000;
+
 async function invokeWithTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -23,6 +28,51 @@ async function invokeWithTimeout<T>(
       setTimeout(() => reject(new Error(errorMessage)), timeoutMs),
     ),
   ]);
+}
+
+const activeConnections = new Map<string, WebSocket>();
+
+const USER_SILENCE_WINDOW_MS = 6000;
+
+function isLikelyMetaLeak(text: string) {
+  const t = text.trim();
+  const hasAllKeys =
+    t.includes("isCodingMode") &&
+    t.includes("isNewQuestion") &&
+    t.includes("currentQuestionText");
+  if (!hasAllKeys) return false;
+
+  const looksLikeBareObject =
+    (t.startsWith("{") && t.endsWith("}")) ||
+    (t.startsWith("(") && t.endsWith(")"));
+
+  return looksLikeBareObject && t.length <= 500;
+}
+
+function stripMetadata(text: string): string {
+  const metaKeys = ["isCodingMode", "isNewQuestion", "currentQuestionText", "isFinished"];
+  let content = text;
+  
+  // Aggressively strip any key-value pairs that look like our metadata schema
+  metaKeys.forEach(key => {
+    const regex = new RegExp(`"?${key}"?\\s*:\\s*(true|false|"[^"]*"|'[^']*')[,\\s]*`, "gi");
+    content = content.replace(regex, "");
+  });
+
+  // Cleanup potential leftover braces or stray commas
+  return content.replace(/[\{\}]/g, "").trim();
+}
+
+function safeSend(
+  ws: WebSocket,
+  payload: unknown,
+  options: { dropIfBackpressured?: boolean } = {},
+) {
+  if (ws.readyState !== ws.OPEN) return;
+  if (options.dropIfBackpressured && ws.bufferedAmount > PARTIAL_TEXT_BACKPRESSURE_THRESHOLD_BYTES) {
+    return;
+  }
+  ws.send(JSON.stringify(payload));
 }
 
 const wsStartSchema = z.object({
@@ -66,23 +116,8 @@ const wsCodeSchema = z.object({
   language: z.string().optional(),
 });
 
-function parseCodingMode(text: string) {
-  if (!text) return { isCoding: false };
-  const regex =
-    /\[CODING[\s_-]*MODE:\s*([\w+\#\-]+)\]([\s\S]*?)\[\/CODING[\s_-]*MODE\]/i;
-  const match = text.match(regex);
-  if (match) {
-    return {
-      isCoding: true,
-      language: match[1]
-        .toLowerCase()
-        .replace("c++", "cpp")
-        .replace("c#", "csharp"),
-      questionText: match[2].trim(),
-    };
-  }
-  return { isCoding: false };
-}
+// parseCodingMode removed - using structured graph output instead
+
 
 export const setupWebSocket = (wss: WebSocketServer) => {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
@@ -128,30 +163,62 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     let isReady = false;
     let isConnecting = false;
     let isInterviewStarting = false;
-    let processedTurns = new Set();
+    let processedTurns = new Set<number>();
+    const addToProcessedTurns = (turn: number) => {
+      processedTurns.add(turn);
+      if (processedTurns.size > 100) {
+        // Simple trim: clear half the set if too large
+        const array = Array.from(processedTurns);
+        processedTurns = new Set(array.slice(50));
+      }
+    };
     let isProcessingTurn = false;
+    let isAISpeaking = false;
+    let aiSpeechTimer: NodeJS.Timeout | null = null;
+    let lastNonFinalTurnAt = 0;
+    let pendingFinalTimer: NodeJS.Timeout | null = null;
+    let pendingFinal: { turnOrder: number; text: string } | null = null;
     let audioBuffer = Buffer.alloc(0);
     let audioFlushTimeout: NodeJS.Timeout | null = null;
+    let reconnectAttempts = 0;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    let isReconnecting = false;
 
     // ---------- Extracted helpers ----------
 
     const extractAIResponse = (messages: any[]) => {
       const aiMessages = [];
+      
       for (let i = messages.length - 1; i >= 0; i--) {
         const msg = messages[i];
         const role =
           msg.role || msg.type || (msg._getType ? msg._getType() : "");
 
-        if (role === "ai" || role === "assistant") {
-          aiMessages.unshift(msg.content);
+        // Only collect non-empty AI messages (skips tool calls)
+        if ((role === "ai" || role === "assistant") && msg.content) {
+          const rawContent =
+            typeof msg.content === "string" ? msg.content : String(msg.content);
+          
+          if (isLikelyMetaLeak(rawContent)) continue;
+
+          const content = stripMetadata(rawContent);
+          if (content) {
+            aiMessages.unshift(content);
+          }
+        } else if (role === "tool") {
+          // Keep going through tool calls to find the actual response
+          continue;
         } else {
           break;
         }
       }
-      return aiMessages.join("\n\n");
+      return aiMessages.join("\n\n").trim();
     };
 
     const handleTranscriberTurn = async (turn: any) => {
+      // Ignore all transcription while AI is processing or speaking
+      if (isProcessingTurn || isAISpeaking) return;
+
       const text = turn.transcript;
       if (!text) return;
 
@@ -161,13 +228,19 @@ export const setupWebSocket = (wss: WebSocketServer) => {
       if (ws.readyState !== ws.OPEN) return;
 
       if (!isFinal) {
-        ws.send(JSON.stringify({ type: "partial_text", content: text }));
+        lastNonFinalTurnAt = Date.now();
+        if (pendingFinalTimer) {
+          clearTimeout(pendingFinalTimer);
+          pendingFinalTimer = null;
+          pendingFinal = null;
+        }
+        safeSend(ws, { type: "partial_text", content: text }, { dropIfBackpressured: true });
       } else {
         if (processedTurns.has(turnOrder)) return;
-        processedTurns.add(turnOrder);
+        if (pendingFinal?.turnOrder === turnOrder) return;
 
-        logger.info({ turnOrder }, `[AAI] FINAL Turn: "${text}"`);
-        ws.send(JSON.stringify({ type: "user_text", content: text }));
+        logger.info({ turnOrder, textLength: text.length }, "[AAI] FINAL Turn received");
+        safeSend(ws, { type: "user_text", content: text });
 
         if (isProcessingTurn) {
           logger.warn(
@@ -176,77 +249,108 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           return;
         }
 
-        try {
-          isProcessingTurn = true;
-          logger.debug({ turnOrder }, "[FLOW] Triggering AI...");
-          const result = (await invokeWithTimeout(
-            graphApp.invoke(
-              { messages: [{ role: "user", content: text }] },
-              { configurable: { thread_id: threadId } },
-            ),
-            45000,
-            "AI response timed out. Please try again.",
-          )) as any;
+        const silenceMs = lastNonFinalTurnAt
+          ? Date.now() - lastNonFinalTurnAt
+          : USER_SILENCE_WINDOW_MS;
+        const remainingMs = Math.max(0, USER_SILENCE_WINDOW_MS - silenceMs);
+        pendingFinal = { turnOrder, text };
+        if (pendingFinalTimer) {
+          clearTimeout(pendingFinalTimer);
+          pendingFinalTimer = null;
+        }
 
-          const aiText = extractAIResponse(result.messages);
-          logger.info(
-            { threadId, aiTextLength: aiText?.length },
-            "[FLOW] AI Response received",
-          );
+        pendingFinalTimer = setTimeout(async () => {
+          const payload = pendingFinal;
+          pendingFinal = null;
+          pendingFinalTimer = null;
+          if (!payload) return;
+          if (processedTurns.has(payload.turnOrder)) return;
 
-          if (ws.readyState === ws.OPEN) {
-            const isCodingResult = result.isCodingMode;
-            const codingInfo = parseCodingMode(aiText);
-
-            if (isCodingResult || codingInfo.isCoding) {
-              logger.info(
-                { language: codingInfo.language || "text", fromGraph: isCodingResult },
-                "[FLOW] Coding mode detected",
+          try {
+            isProcessingTurn = true;
+            addToProcessedTurns(payload.turnOrder);
+            logger.debug(
+              { turnOrder: payload.turnOrder, waitedMs: remainingMs },
+              "[FLOW] Triggering AI (silence gate)",
+            );
+            if (!graphApp) {
+              throw new Error(
+                "AI orchestrator is not initialized. Please retry in a moment.",
               );
+            }
+            const result = (await invokeWithTimeout(
+              graphApp.invoke(
+                { messages: [{ role: "user", content: payload.text }] },
+                { configurable: { thread_id: threadId } },
+              ),
+              45000,
+              "AI response timed out. Please try again.",
+            )) as any;
 
-              // Only send preText if we actually have coding tags to split the message
-              if (codingInfo.isCoding) {
-                const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
-                if (preText) {
-                  ws.send(JSON.stringify({ type: "text", content: preText }));
-                }
-              }
+            const aiText = extractAIResponse(result.messages);
+            logger.info(
+              { threadId, aiTextLength: aiText?.length },
+              "[FLOW] AI Response received",
+            );
 
-              ws.send(
-                JSON.stringify({
+            if (ws.readyState === ws.OPEN) {
+              const isCodingResult = !!result.isCodingMode;
+              if (isCodingResult) {
+                logger.info(
+                  { fromGraph: isCodingResult },
+                  "[FLOW] Coding mode detected from structured output",
+                );
+
+                safeSend(ws, {
                   type: "coding_question",
-                  language: codingInfo.language || "javascript",
-                  questionText: codingInfo.questionText || aiText,
+                  language: "javascript", // Default for now, graph can provide language later
+                  questionText: aiText,
                   initialCode: "",
-                }),
-              );
-            } else {
-              ws.send(
-                JSON.stringify({
+                });
+              } else {
+                safeSend(ws, {
                   type: "text",
                   content: aiText,
                   isFinished: !!result.isFinished,
-                }),
-              );
-            }
+                  isCodingMode: isCodingResult,
+                });
+              }
 
-            if (result.isFinished) {
-              await closeTranscriber();
+              // Lock microphone while AI is assumed to be speaking
+              isAISpeaking = true;
+              if (aiSpeechTimer) clearTimeout(aiSpeechTimer);
+
+              //  Dynamic safety fallback based on text length (approx 150ms per char + 5s buffer)
+              const estimatedDuration = Math.min(
+                30000,
+                Math.max(5000, aiText.length * 150),
+              );
+
+              aiSpeechTimer = setTimeout(() => {
+                isAISpeaking = false;
+                logger.debug(
+                  { estimatedDuration },
+                  "[FLOW] AI speech auto-unlocked (safety timeout)",
+                );
+              }, estimatedDuration);
+
+              if (result.isFinished) {
+                await closeTranscriber();
+              }
             }
-          }
-        } catch (err: any) {
-          logger.error({ err }, "[GRAPH] Error");
-          if (ws.readyState === ws.OPEN) {
-            ws.send(
-              JSON.stringify({
+          } catch (err: any) {
+            logger.error({ err }, "[GRAPH] Error");
+            isAISpeaking = false; // Emergency unlock
+            if (ws.readyState === ws.OPEN) {
+              safeSend(ws, {
                 type: "error",
                 message: err.message || "Failed to get AI response",
-              }),
-            );
+              });
+            }
+          } finally {
+            isProcessingTurn = false;
           }
-        } finally {
-          isProcessingTurn = false;
-        }
+        }, remainingMs);
       }
     };
 
@@ -259,13 +363,14 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           sampleRate: 16000,
           formatTurns: true,
           speechModel: "universal-streaming-english",
-          minTurnSilence: 3000,
+          minTurnSilence: AAI_MIN_TURN_SILENCE_MS,
         });
 
         rt.on("turn", handleTranscriberTurn);
         rt.on("open", ({ id }: { id: string }) => {
           isReady = true;
           isConnecting = false;
+          reconnectAttempts = 0;
           logger.info({ id }, "[AAI] Session started");
         });
         rt.on("close", (code: number, reason: string) => {
@@ -292,20 +397,37 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     };
 
     const ensureTranscriber = async () => {
-      if ((!rt || !isReady) && threadId && !isInterviewStarting) {
+      if (
+        (!rt || !isReady) &&
+        threadId &&
+        !isInterviewStarting &&
+        !isReconnecting &&
+        reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+      ) {
+        isReconnecting = true;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 15000);
+        
         logger.info(
-          { threadId },
-          "[AAI] Re-establishing transcriber session...",
+          { threadId, reconnectAttempts, delay },
+          `[AAI] Scheduling reconnect (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS}) in ${delay}ms`,
         );
-        try {
-          await createAndConnectTranscriber();
-        } catch (err) {
-          logger.error({ err }, "[AAI] Failed to auto-reconnect transcriber");
-        }
+
+        setTimeout(async () => {
+          try {
+            await createAndConnectTranscriber();
+            reconnectAttempts = 0; // Reset on success (if reached rt.connect)
+          } catch (err) {
+            reconnectAttempts++;
+            logger.error({ err }, "[AAI] Reconnect attempt failed");
+          } finally {
+            isReconnecting = false;
+          }
+        }, delay);
       }
     };
 
     const closeTranscriber = async () => {
+      reconnectAttempts = 0; // Essential for subsequent resume attempts
       const transcriberToClose = rt;
       rt = null;
       isReady = false;
@@ -332,23 +454,33 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     const sendConversationHistory = async () => {
       if (!threadId) return;
       try {
+        if (!graphApp) {
+          throw new Error("AI orchestrator is not initialized. Please retry in a moment.");
+        }
         const state = await graphApp.getState({
           configurable: { thread_id: threadId },
         });
         if (state?.values?.messages) {
-          const existingMessages = state.values.messages.map((msg: any) => ({
-            role: msg._getType(),
-            text: msg.content,
-          }));
+          //  Filter out tool messages and empty content to avoid raw JSON in UI
+          const existingMessages = state.values.messages
+            .filter((msg: any) => {
+              const role = msg._getType();
+              return (role === "ai" || role === "human") && msg.content;
+            })
+            .map((msg: any) => ({
+              role: msg._getType(),
+              text: stripMetadata(
+                typeof msg.content === "string" ? msg.content : String(msg.content)
+              ),
+            }))
+            .filter((m: any) => m.text && !isLikelyMetaLeak(m.text));
 
           if (ws.readyState === ws.OPEN) {
-            ws.send(
-              JSON.stringify({
-                type: "history",
-                messages: existingMessages,
-                isCodingMode: !!state.values.isCodingMode,
-              }),
-            );
+            safeSend(ws, {
+              type: "history",
+              messages: existingMessages,
+              isCodingMode: !!state.values.isCodingMode,
+            });
           }
         }
       } catch (err) {
@@ -365,12 +497,10 @@ export const setupWebSocket = (wss: WebSocketServer) => {
         if (rawData.type === "start") {
           const result = wsStartSchema.safeParse(rawData);
           if (!result.success) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Invalid start message payload",
-              }),
-            );
+            safeSend(ws, {
+              type: "error",
+              message: "Invalid start message payload",
+            });
             return;
           }
           const data = result.data;
@@ -396,6 +526,20 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             return;
           }
 
+          // Concurrent session guard
+          if (activeConnections.has(threadId)) {
+            const existingSocket = activeConnections.get(threadId);
+            if (existingSocket && existingSocket !== ws && existingSocket.readyState === WebSocket.OPEN) {
+              logger.warn({ threadId }, "[WS] Closing existing concurrent session (start)");
+              existingSocket.send(JSON.stringify({ 
+                type: "error", 
+                message: "Another session has been opened. This connection is being closed." 
+              }));
+              existingSocket.close();
+            }
+          }
+          activeConnections.set(threadId, ws);
+
           isInterviewStarting = true;
           const resume = data.resume;
           const maxQuestions = data.numberOfQuestions;
@@ -404,6 +548,9 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           try {
             logger.debug("[START] Invoking graph...");
+            if (!graphApp) {
+              throw new Error("AI orchestrator is not initialized. Please retry in a moment.");
+            }
 
             // Update status to in-progress
             await Interview.findByIdAndUpdate(threadId, {
@@ -438,39 +585,27 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             );
 
             if (ws.readyState === ws.OPEN) {
-              const isCodingResult = result.isCodingMode;
-              const codingInfo = parseCodingMode(aiText);
+              const isCodingResult = !!result.isCodingMode;
 
-              if (isCodingResult || codingInfo.isCoding) {
+              if (isCodingResult) {
                 logger.info(
-                  { language: codingInfo.language || "text", fromGraph: isCodingResult },
+                  { fromGraph: isCodingResult },
                   "[START] Coding mode detected in initial response",
                 );
 
-                // Only send preText if we actually have coding tags to split the message
-                if (codingInfo.isCoding) {
-                  const preText = aiText.split(/\[CODING_MODE/i)[0].trim();
-                  if (preText) {
-                    ws.send(JSON.stringify({ type: "text", content: preText }));
-                  }
-                }
-
-                ws.send(
-                  JSON.stringify({
-                    type: "coding_question",
-                    language: codingInfo.language || "typescript",
-                    questionText: codingInfo.questionText || aiText,
-                    initialCode: "",
-                  }),
-                );
+                safeSend(ws, {
+                  type: "coding_question",
+                  language: "typescript",
+                  questionText: stripMetadata(aiText),
+                  initialCode: "",
+                });
               } else {
-                ws.send(
-                  JSON.stringify({
-                    type: "text",
-                    content: aiText,
-                    isFinished: !!result.isFinished,
-                  }),
-                );
+                safeSend(ws, {
+                  type: "text",
+                  content: stripMetadata(aiText),
+                  isFinished: !!result.isFinished,
+                  isCodingMode: isCodingResult,
+                });
               }
 
               if (result.isFinished) {
@@ -478,10 +613,13 @@ export const setupWebSocket = (wss: WebSocketServer) => {
               }
             }
 
-            // Connect AssemblyAI streaming transcriber
-            await createAndConnectTranscriber();
+            // Connect AssemblyAI streaming transcriber unless the graph produced a closing turn.
+            if (!result.isFinished) {
+              await createAndConnectTranscriber();
+            }
           } catch (err: any) {
             logger.error({ err }, "[START] Error during initialization");
+          } finally {
             isInterviewStarting = false;
           }
         } else if (rawData.type === "pause") {
@@ -511,12 +649,10 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           // ---------- RECONNECT RESUME handler (new WS connection to paused interview) ----------
           const result = wsResumeStartSchema.safeParse(rawData);
           if (!result.success || !result.data.threadId) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Invalid resume payload",
-              }),
-            );
+            safeSend(ws, {
+              type: "error",
+              message: "Invalid resume payload",
+            });
             return;
           }
 
@@ -529,15 +665,27 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             (interview.status !== "paused" &&
               interview.status !== "in-progress")
           ) {
-            ws.send(
-              JSON.stringify({
-                type: "error",
-                message: "Cannot resume: interview not found or not paused",
-              }),
-            );
+            safeSend(ws, {
+              type: "error",
+              message: "Cannot resume: interview not found or not paused",
+            });
             ws.close(4003, "Forbidden");
             return;
           }
+
+          // Concurrent session guard
+          if (activeConnections.has(threadId)) {
+            const existingSocket = activeConnections.get(threadId);
+            if (existingSocket && existingSocket !== ws && existingSocket.readyState === WebSocket.OPEN) {
+              logger.warn({ threadId }, "[WS] Closing existing concurrent session (resume)");
+              existingSocket.send(JSON.stringify({ 
+                type: "error", 
+                message: "Another session has been opened. This connection is being closed." 
+              }));
+              existingSocket.close();
+            }
+          }
+          activeConnections.set(threadId, ws);
 
           // Update status
           await Interview.findByIdAndUpdate(threadId, {
@@ -552,12 +700,10 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             await createAndConnectTranscriber();
 
             if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "resumed",
-                  message: "Interview resumed",
-                }),
-              );
+              safeSend(ws, {
+                type: "resumed",
+                message: "Interview resumed",
+              });
             }
 
             logger.info(
@@ -567,12 +713,10 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           } catch (err) {
             logger.error({ err }, "[RESUME] Failed to reconnect transcriber");
             if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "Failed to resume transcription. Please try again.",
-                }),
-              );
+              safeSend(ws, {
+                type: "error",
+                message: "Failed to resume transcription. Please try again.",
+              });
             }
           }
         } else if (rawData.type === "resume" && threadId) {
@@ -594,22 +738,18 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             await createAndConnectTranscriber();
 
             if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "resumed",
-                  message: "Interview resumed",
-                }),
-              );
+              safeSend(ws, {
+                type: "resumed",
+                message: "Interview resumed",
+              });
             }
           } catch (err) {
             logger.error({ err }, "[RESUME] Failed to reconnect transcriber");
             if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "error",
-                  message: "Failed to resume transcription. Please try again.",
-                }),
-              );
+              safeSend(ws, {
+                type: "error",
+                message: "Failed to resume transcription. Please try again.",
+              });
             }
           }
         } else if (rawData.type === "audio") {
@@ -619,6 +759,11 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           // Auto-reconnect if needed
           await ensureTranscriber();
+
+          // Ignore user audio if AI is processing or speaking
+          if (isProcessingTurn || isAISpeaking) {
+            return;
+          }
 
           if (rt && isReady) {
             try {
@@ -679,6 +824,9 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           try {
             isProcessingTurn = true;
+            if (!graphApp) {
+              throw new Error("AI orchestrator is not initialized. Please retry in a moment.");
+            }
 
             const submitText = `I have submitted my code in ${result.data.language || "the requested language"}:\n\n\`\`\`\n${result.data.content}\n\`\`\``;
 
@@ -694,18 +842,28 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             const aiEvaluation = extractAIResponse(graphResult.messages);
 
             if (ws.readyState === ws.OPEN) {
-              ws.send(
-                JSON.stringify({
-                  type: "text",
-                  content: aiEvaluation,
-                  isFinished: !!graphResult.isFinished,
-                }),
-              );
+              safeSend(ws, {
+                type: "text",
+                content: aiEvaluation,
+                isFinished: !!graphResult.isFinished,
+              });
+            }
+
+            if (graphResult.isFinished) {
+              await closeTranscriber();
             }
           } catch (err: any) {
             logger.error({ err }, "[CODE_SUBMIT] Error");
+            isAISpeaking = false; // Emergency unlock
           } finally {
             isProcessingTurn = false;
+          }
+        } else if (rawData.type === "speech_finished") {
+          logger.debug("[FLOW] AI speech finished, unlocking microphone.");
+          isAISpeaking = false;
+          if (aiSpeechTimer) {
+            clearTimeout(aiSpeechTimer);
+            aiSpeechTimer = null;
           }
         }
       } catch (err: any) {
@@ -714,9 +872,17 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     });
 
     ws.on("close", async () => {
+      if (threadId) {
+        activeConnections.delete(threadId);
+      }
       logger.info({ userId }, "WebSocket client disconnected");
       isInterviewStarting = false;
 
+      if (pendingFinalTimer) {
+        clearTimeout(pendingFinalTimer);
+        pendingFinalTimer = null;
+        pendingFinal = null;
+      }
       await closeTranscriber();
 
       // If interview was in-progress when disconnected, auto-pause it
