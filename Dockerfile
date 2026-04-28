@@ -38,4 +38,4 @@ ENV PORT=10000
 EXPOSE 10000
 
 # Start the server using the compiled JS
-CMD ["node", "dist/server.js"]
+CMD ["npx", "tsx", "dist/server.js"]
