@@ -32,6 +32,7 @@ export const MESSAGES = {
     REFRESH_TOKEN_NOT_FOUND: "Refresh token not found",
     NOT_AUTHENTICATED: "Not authenticated.",
     TOKEN_INVALIDATED: "Token invalidated",
+    TOKEN_EXPIRED: "Token expired",
     RESET_PASSWORD_SUBJECT: "Reset your password",
     RESET_LINK_SENT: "If an account with this email exists, we will send you a reset link",
     INVALID_OR_EXPIRED_TOKEN: "Invalid or expired token",

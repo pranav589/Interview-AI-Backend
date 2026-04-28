@@ -16,7 +16,7 @@ export const errorHandler = (
 
   // Normalize specific authentication errors to 401
   if (err.name === "TokenExpiredError") {
-    error = new AppError(MESSAGES.AUTH.TOKEN_INVALIDATED, 401);
+    error = new AppError(MESSAGES.AUTH.TOKEN_EXPIRED, 401);
   } else if (err.name === "JsonWebTokenError") {
     error = new AppError(MESSAGES.AUTH.NOT_AUTHENTICATED, 401);
   }

@@ -14,6 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "@cartesia/cartesia-js": "^3.0.0",
+    "@elevenlabs/elevenlabs-js": "^2.43.0",
     "@langchain/community": "^1.1.27",
     "@langchain/core": "^1.1.38",
     "@langchain/google": "^0.1.6",
@@ -22,6 +23,7 @@
     "@langchain/langgraph-checkpoint-mongodb": "^1.2.0",
     "@langchain/langgraph-checkpoint-postgres": "^1.0.1",
     "@langchain/openai": "^1.2.13",
+    "@langchain/tavily": "^1.2.0",
     "@types/multer": "^2.1.0",
     "assemblyai": "^4.28.0",
     "bcryptjs": "^3.0.3",

@@ -25,6 +25,7 @@ import {
 } from "@langchain/core/prompts";
 
 import { isFeatureEnabled } from "../../utils/feature-flags";
+import { extractQAPairs } from "../../lib/message-utils";
 
 const logger = createModuleLogger("interview");
 
@@ -326,7 +327,8 @@ export const getFeedbackHandler = asyncHandler(
 
     const { threadId, actualDuration } = result.data;
 
-    const interview = await Interview.findById(threadId);
+    const authUser = (req as AuthenticatedRequest).user;
+    const interview = await Interview.findOne({ _id: threadId, userId: authUser.id });
     if (!interview) {
       throw new NotFoundError("Interview record not found");
     }
@@ -366,8 +368,10 @@ ${
 
     const promptTemplate = ChatPromptTemplate.fromMessages([
       ["system", basePrompt],
-      new MessagesPlaceholder("history"),
+      ["system", "INTERVIEW TRANSCRIPT:\n{history}"],
     ]);
+
+    const qaHistory = extractQAPairs(state.values.messages);
 
     const formattedMessages = await promptTemplate.formatMessages({
       interviewType: interview.interviewType,
@@ -376,7 +380,7 @@ ${
       customTopics: (interview as any).customTopics || "None specified",
       jobDescription: (interview as any).jobDescription || "None specified",
       companyStyle: (interview as any).companyStyle || "Standard professional",
-      history: state.values.messages,
+      history: qaHistory.map(pair => `Question: ${pair.question}\nAnswer: ${pair.answer}`).join("\n\n"),
     });
 
     const responseData = await invokeStructuredLLMWithFallback(

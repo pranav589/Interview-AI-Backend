@@ -39,6 +39,7 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URL: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(), // Fallback LLM (Gemini)
   GROQ_API_KEY: z.string().optional(), // Fallback LLM (Groq)
+  TAVILY_API_KEY: z.string().optional(), // Web search tool
   COOKIE_DOMAIN: z.string().optional(), // Shared root domain (e.g. .interviewai.net.in)
 });
 
