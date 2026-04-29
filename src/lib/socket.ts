@@ -117,7 +117,12 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           const silenceMs = lastNonFinalTurnAt ? Date.now() - lastNonFinalTurnAt : USER_SILENCE_WINDOW_MS;
           const wait = Math.max(0, USER_SILENCE_WINDOW_MS - silenceMs);
           
-          pendingFinal = { turnOrder: turn.turn_order, text: turn.transcript };
+          if (pendingFinal) {
+            pendingFinal.text = `${pendingFinal.text} ${turn.transcript}`.trim();
+          } else {
+            pendingFinal = { turnOrder: turn.turn_order, text: turn.transcript };
+          }
+
           if (pendingFinalTimer) clearTimeout(pendingFinalTimer);
           
           pendingFinalTimer = setTimeout(() => {
