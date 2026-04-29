@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response } from "express";
-import { verifyAccessToken } from "../lib/token";
+import { verifyAccessToken } from "../services/token.service";
 import { User } from "../models/user.model";
 import { UnauthorizedError } from "../lib/errors";
 import { MESSAGES } from "../config/constants";
