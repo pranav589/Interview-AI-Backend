@@ -1,7 +1,7 @@
-import { createLLM, createFallbackLLM, LLMOptions } from "./llm";
-import { createModuleLogger } from "./logger";
+import { createLLM, createFallbackLLM, LLMOptions } from "./llm.provider";
+import { createModuleLogger } from "../lib/logger";
 import { z } from "zod";
-import { BaseChatModel } from "@langchain/core/language_models/chat_models";
+import { MESSAGES } from "../config/constants";
 
 const logger = createModuleLogger("llm-fallback");
 
@@ -36,7 +36,7 @@ export async function invokeLLMMessageWithFallback(
       return await activeFallback.invoke(messages);
     } catch (fallbackError) {
       logger.error({ primaryError, fallbackError }, "Both LLMs failed");
-      throw new Error("AI service temporarily unavailable.");
+      throw new Error(MESSAGES.AI.UNAVAILABLE);
     }
   }
 }
@@ -78,7 +78,7 @@ export async function invokeStructuredLLMWithFallback<T extends z.ZodTypeAny>(
       return await fallback.invoke(messages) as any;
     } catch (fallbackError) {
       logger.error({ primaryError, fallbackError }, "Both structured LLMs failed");
-      throw new Error("AI analysis service temporarily unavailable.");
+      throw new Error(MESSAGES.AI.ANALYSIS_UNAVAILABLE);
     }
   }
 }

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import requireAuth from "../middleware/requireAuth";
+import { MESSAGES } from "../config/constants";
 import multer from "multer";
 import { getProfile, uploadResume, updateSettings, completeOnboarding } from "../controllers/user/user.controller";
 
@@ -9,7 +10,7 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
   fileFilter: (req, file, cb) => {
     if (file.mimetype !== 'application/pdf') {
-      return cb(new Error('Only PDF files are allowed'));
+      return cb(new Error(MESSAGES.USER.RESUME_INVALID_TYPE));
     }
     cb(null, true);
   }
@@ -29,10 +30,10 @@ router.post(
     upload.single("resume")(req, res, (err) => {
       if (err instanceof multer.MulterError) {
         if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({ message: "File too large. Maximum size is 5MB." });
+          return res.status(413).json({ message: MESSAGES.USER.RESUME_TOO_LARGE });
         }
         if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          return res.status(400).json({ message: "Unexpected file field." });
+          return res.status(400).json({ message: MESSAGES.USER.UNEXPECTED_FIELD });
         }
         return res.status(400).json({ message: err.message });
       } else if (err) {

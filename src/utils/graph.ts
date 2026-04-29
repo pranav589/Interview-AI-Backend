@@ -20,16 +20,16 @@ import {
   invokeStructuredLLMWithFallback, 
   invokeLLMWithFallback,
   invokeLLMMessageWithFallback
-} from "../lib/llm-with-fallback";
+} from "../providers/llm-with-fallback.provider";
 
 import { 
   getBehavioralSystemPrompt, 
   getTechnicalSystemPrompt, 
   getSysDesignSystemPrompt 
-} from "../lib/prompts";
+} from "../constants/prompts";
 import { isFeatureEnabled } from "./feature-flags";
 import { createWebSearchTool, hintGeneratorTool, codeEvaluatorTool, topicTrackerTool } from "./tools";
-import { formatWebSearchResults } from "../lib/message-utils";
+import { formatWebSearchResults } from "../helpers/message-utils";
 import { z } from "zod";
 
 const logger = createModuleLogger("graph");
