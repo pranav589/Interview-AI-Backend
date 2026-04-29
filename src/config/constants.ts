@@ -110,6 +110,11 @@ export const MESSAGES = {
     AUTH: "Too many login attempts. Please try again after 15 minutes.",
     INTERVIEW: "Interview session limit reached. Please try again later.",
   },
+  SUBSCRIPTION: {
+    DATA_MISSING: "User subscription data missing",
+    INSUFFICIENT_CREDITS: "Insufficient credits. Please upgrade your plan.",
+    UPGRADE_REQUIRED: "Subscription upgrade required to access this feature",
+  },
 } as const;
 
 export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTION_TIERS];
