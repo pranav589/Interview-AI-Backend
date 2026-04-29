@@ -1,4 +1,5 @@
 import z from "zod";
+import { MESSAGES } from "../config/constants";
 
 export const registerSchema = z.object({
   email: z.email(),
@@ -12,10 +13,10 @@ export const loginSchema = z.object({
   twoFactorCode: z.string().optional(),
 });
 export const forgotPasswordSchema = z.object({
-  email: z.email("Invalid email format"),
+  email: z.email(MESSAGES.AUTH.INVALID_EMAIL),
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(1, "Reset token is required"),
-  password: z.string().min(6, "Password must be at least 6 characters"),
+  token: z.string().min(1, MESSAGES.AUTH.RESET_TOKEN_REQUIRED),
+  password: z.string().min(6, MESSAGES.AUTH.PASSWORD_MIN_LENGTH),
 });

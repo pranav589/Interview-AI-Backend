@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import { Config } from "../models/config.model";
+import { MESSAGES } from "../config/constants";
 
 export const getFeatureFlags = async (req: Request, res: Response) => {
   try {
@@ -12,12 +13,14 @@ export const getFeatureFlags = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
+      message: MESSAGES.SYSTEM.FEATURE_FLAGS_FETCHED,
       data: flags,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      message: "Error fetching feature flags",
+      message: MESSAGES.SYSTEM.FEATURE_FLAGS_ERROR,
+      data: null
     });
   }
 };

@@ -31,7 +31,6 @@ export const errorHandler = (
     // Production: handle specific error types (Mongoose, etc)
     let prodError = error;
 
-    // Copy for specific error types if needed, otherwise use direct reference
     if (err.name === "CastError") {
       prodError = new AppError(`Invalid ${err.path}: ${err.value}`, 400);
     }
@@ -59,23 +58,29 @@ export const errorHandler = (
 const sendDevError = (err: any, res: Response) => {
   logger.error(err);
   res.status(err.statusCode).json({
+    success: false,
     message: err.message,
-    status: err.status,
-    code: err.statusCode,
+    data: {
+      stack: err.stack,
+      code: err.statusCode,
+      status: err.status
+    }
   });
 };
 
 const sendProdError = (err: any, res: Response) => {
   if (err.isOperational) {
     res.status(err.statusCode).json({
+      success: false,
       message: err.message,
-      code: err.statusCode,
+      data: null
     });
   } else {
     logger.error(" CRITICAL UNEXPECTED ERROR:", err);
     res.status(500).json({
+      success: false,
       message: MESSAGES.SYSTEM.ERROR,
-      code: 500,
+      data: null
     });
   }
 };

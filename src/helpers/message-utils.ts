@@ -62,3 +62,30 @@ export function formatWebSearchResults(results: any): string {
     )
     .join("\n\n");
 }
+export function isLikelyMetaLeak(text: string) {
+  const t = text.trim();
+  const hasAllKeys =
+    t.includes("isCodingMode") &&
+    t.includes("isNewQuestion") &&
+    t.includes("currentQuestionText");
+  if (!hasAllKeys) return false;
+
+  const looksLikeBareObject =
+    (t.startsWith("{") && t.endsWith("}")) ||
+    (t.startsWith("(") && t.endsWith(")"));
+
+  return looksLikeBareObject && t.length <= 500;
+}
+
+export function stripMetadata(text: string): string {
+  if (typeof text !== "string") return "";
+  const metaKeys = ["isCodingMode", "isNewQuestion", "currentQuestionText", "isFinished"];
+  let content = text;
+  
+  metaKeys.forEach(key => {
+    const regex = new RegExp(`"?${key}"?\\s*:\\s*(true|false|"[^"]*"|'[^']*')[,\\s]*`, "gi");
+    content = content.replace(regex, "");
+  });
+
+  return content.replace(/[\{\}]/g, "").trim();
+}

@@ -1,7 +1,7 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { env } from "../config/env";
-import { createModuleLogger } from "./logger";
+import { createModuleLogger } from "../lib/logger";
 
 const logger = createModuleLogger("llm");
 

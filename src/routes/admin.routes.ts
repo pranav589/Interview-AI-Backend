@@ -3,6 +3,7 @@ import { requireRole } from "../middleware/requireRole";
 import requireAuth from "../middleware/requireAuth";
 import { User } from "../models/user.model";
 import { asyncHandler } from "../lib/asyncHandler";
+import { MESSAGES } from "../config/constants";
 
 const router = Router();
 
@@ -30,7 +31,12 @@ router.get(
         createdAt: u.createdAt,
       };
     });
-    return res.json({ users: result });
+    
+    return res.json({
+      success: true,
+      message: MESSAGES.ADMIN.USERS_FETCHED,
+      data: result
+    });
   }),
 );
 

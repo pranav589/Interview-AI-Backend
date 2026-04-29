@@ -2,7 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { TavilySearch } from "@langchain/tavily";
 import { env } from "../config/env";
-import { createLLM } from "../lib/llm";
+import { createLLM } from "../providers/llm.provider";
 import { createModuleLogger } from "../lib/logger";
 import { isFeatureEnabled } from "./feature-flags";
 

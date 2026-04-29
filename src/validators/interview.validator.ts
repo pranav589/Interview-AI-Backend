@@ -1,5 +1,5 @@
 import z from "zod";
-import { INTERVIEW_TYPES, DIFFICULTY_LEVELS } from "../../config/constants";
+import { INTERVIEW_TYPES, DIFFICULTY_LEVELS, MESSAGES } from "../config/constants";
 
 export const interviewSchema = z.object({
   interviewType: z.enum(INTERVIEW_TYPES),
@@ -22,7 +22,7 @@ export const getInterviewsQuerySchema = z.object({
 });
 export const feedbackRequestSchema = z.object({
   threadId: z.string().refine((val) => /^[0-9a-fA-F]{24}$/.test(val), {
-    message: "Invalid interview ID format",
+    message: MESSAGES.INTERVIEW.INVALID_ID_FORMAT,
   }),
   actualDuration: z.number().nonnegative().optional().default(0),
 });
