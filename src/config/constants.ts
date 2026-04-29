@@ -19,6 +19,11 @@ export const DIFFICULTY_LEVELS = [
 ] as const;
 
 export const MESSAGES = {
+  SUBSCRIPTION: {
+    DATA_MISSING: "User subscription data missing from request",
+    INSUFFICIENT_CREDITS: "Insufficient credits. Please upgrade your plan.",
+    UPGRADE_REQUIRED: "Subscription upgrade required to access this feature",
+  },
   AUTH: {
     INVALID_DATA: "Invalid data!",
     EMAIL_EXISTS: "Email already exists. Please try with a different email",
@@ -109,11 +114,6 @@ export const MESSAGES = {
     DEFAULT: "Too many requests from this IP, please try again after 15 minutes",
     AUTH: "Too many login attempts. Please try again after 15 minutes.",
     INTERVIEW: "Interview session limit reached. Please try again later.",
-  },
-  SUBSCRIPTION: {
-    DATA_MISSING: "User subscription data missing",
-    INSUFFICIENT_CREDITS: "Insufficient credits. Please upgrade your plan.",
-    UPGRADE_REQUIRED: "Subscription upgrade required to access this feature",
   },
 } as const;
 
