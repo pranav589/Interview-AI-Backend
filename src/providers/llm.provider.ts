@@ -14,7 +14,12 @@ export interface LLMOptions {
 }
 
 export function createLLM(options: LLMOptions = {}) {
-  const { jsonMode = false, timeout = 30000, maxRetries = 2, maxTokens = 4096 } = options;
+  const {
+    jsonMode = false,
+    timeout = 120000,
+    maxRetries = 2,
+    maxTokens = 16384,
+  } = options;
 
   return new ChatOpenAI({
     model: "openai/gpt-4o-mini",
@@ -27,10 +32,39 @@ export function createLLM(options: LLMOptions = {}) {
       modelKwargs: { response_format: { type: "json_object" } },
     }),
   });
+
+  /*
+  // NVIDIA DeepSeek Configuration
+  return new ChatOpenAI({
+    model: "deepseek-ai/deepseek-v4-pro",
+    apiKey: env.NVIDIA_API_KEY,
+    configuration: { baseURL: "https://integrate.api.nvidia.com/v1" },
+    timeout,
+    maxRetries,
+    maxTokens,
+    temperature: 1,
+    topP: 0.95,
+    ...(jsonMode && {
+      modelKwargs: { 
+        response_format: { type: "json_object" },
+      },
+    }),
+    ...(!jsonMode && {
+      modelKwargs: { 
+        chat_template_kwargs: { thinking: false }
+      }
+    })
+  });
+  */
 }
 
 export function createFallbackLLM(options: LLMOptions = {}) {
-  const { jsonMode = false, timeout = 30000, maxRetries = 1, maxTokens = 4096 } = options;
+  const {
+    jsonMode = false,
+    timeout = 60000,
+    maxRetries = 1,
+    maxTokens = 4096,
+  } = options;
 
   // Only create if Groq API key is available
   if (!env.GROQ_API_KEY) {

@@ -12,6 +12,7 @@ const DEFAULT_FLAGS = [
   { key: "top_percentile_enabled", value: true, description: "Global user comparison / rank" },
   { key: "interview_technical_enabled", value: true, description: "Access to technical interviews" },
   { key: "interview_system_design_enabled", value: true, description: "Access to system design interviews" },
+  { key: "interview_behavioral_enabled", value: true, description: "Access to behavioral interviews" },
   { key: "resume_upload_enabled", value: true, description: "Ability to upload and analyze resumes" },
   { key: "credits_system_enabled", value: true, description: "Enforce credit limits for interviews" },
   { key: "tts_enabled", value: true, description: "AI Voice playback (Text-to-Speech)" },
@@ -23,6 +24,9 @@ const DEFAULT_FLAGS = [
   { key: "hints_tool_enabled", value: true, description: "AI Socratic hints for candidates" },
   { key: "code_eval_tool_enabled", value: true, description: "Deep code analysis tool" },
   { key: "topic_tracker_tool_enabled", value: true, description: "Automated topic suggested tool" },
+  { key: "resume_analyzer_enabled", value: true, description: "Resume Analyzer tool access" },
+  { key: "jd_matcher_enabled", value: true, description: "JD Matcher tool access" },
+  { key: "resume_builder_enabled", value: true, description: "AI Resume Builder access" },
 ];
 
 export async function seedFeatureFlags() {
