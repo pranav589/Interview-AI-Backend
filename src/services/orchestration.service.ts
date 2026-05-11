@@ -73,6 +73,7 @@ export class OrchestrationService {
       configurable: { thread_id: threadId },
     });
 
+
     if (!state?.values?.messages) return null;
 
     const existingMessages = state.values.messages

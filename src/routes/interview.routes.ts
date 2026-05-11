@@ -5,6 +5,7 @@ import {
   getInterviewDetails,
   getInterviewStats,
   getFeedbackHandler,
+  getJobStatusHandler,
   getScoreHistory,
 } from "../controllers/interview/interview.controller";
 import requireAuth from "../middleware/requireAuth";
@@ -17,6 +18,7 @@ const router = Router();
 router.use(checkSubscription);
 
 router.post("/feedback", getFeedbackHandler);
+router.get("/jobs/:jobId", getJobStatusHandler);
 router.post("/", interviewRateLimiter, requireCredits, createInterview);
 router.get("/", getInterviews);
 router.get("/stats", getInterviewStats);
