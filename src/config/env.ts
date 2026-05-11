@@ -12,6 +12,7 @@ const envSchema = z.object({
   JWT_ACCESS_SECRET: z.string().min(1),
   JWT_REFRESH_SECRET: z.string().min(1),
   OPENROUTER_API_KEY: z.string().min(1),
+  NVIDIA_API_KEY: z.string().optional(),
   ASSEMBLYAI_API_KEY: z.string().min(1),
   EMAIL_USER: z.string().min(1),
   EMAIL_PASS: z.string().min(1),
@@ -41,6 +42,7 @@ const envSchema = z.object({
   GROQ_API_KEY: z.string().optional(), // Fallback LLM (Groq)
   TAVILY_API_KEY: z.string().optional(), // Web search tool
   COOKIE_DOMAIN: z.string().optional(), // Shared root domain (e.g. .interviewai.net.in)
+  PDF_RENDERER_MODE: z.enum(["legacy", "new"]).default("new"),
 });
 
 const _env = envSchema.safeParse(process.env);

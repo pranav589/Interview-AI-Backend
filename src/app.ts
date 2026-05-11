@@ -8,6 +8,8 @@ import authRouter from "./routes/auth.routes";
 import userRouter from "./routes/user.routes";
 import adminRouter from "./routes/admin.routes";
 import interviewRouter from "./routes/interview.routes";
+import resumeRouter from "./routes/resume.routes";
+import notificationRouter from "./routes/notification.routes";
 import requireAuth from "./middleware/requireAuth";
 import cors from "cors";
 
@@ -70,8 +72,10 @@ app.get("/api/v1/tts", streamTTS);
 app.use("/api/v1/config", configRouter);
 app.use("/api/v1/auth", authRateLimiter, authRouter);
 app.use("/api/v1/user", requireAuth, userRouter);
+app.use("/api/v1/resume", requireAuth, resumeRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/interview", requireAuth, interviewRouter);
+app.use("/api/v1/notifications", requireAuth, notificationRouter);
 
 app.use(errorHandler);
 

@@ -74,6 +74,18 @@ export const MESSAGES = {
     SETTINGS_UPDATE_SUCCESS: "Settings updated successfully",
     PROFILE_FETCHED: "Profile fetched successfully",
     UNEXPECTED_FIELD: "Unexpected file field.",
+    RESUME: {
+      NOT_FOUND: "Resume not found",
+      FETCH_SUCCESS: "Resumes fetched successfully",
+      UPLOAD_SUCCESS: "Resume uploaded successfully",
+      UPDATE_SUCCESS: "Resume updated successfully",
+      DELETE_SUCCESS: "Resume deleted successfully",
+      ANALYSIS_SUCCESS: "Resume analysis completed",
+      MATCH_SUCCESS: "JD Match analysis completed",
+      BUILDER_STARTED: "Resume builder session started",
+      EXPORT_SUCCESS: "Resume exported successfully",
+      INVALID_FILE_TYPE: "Invalid file type. Only PDF, DOCX and Text are allowed for JD.",
+    },
   },
   INTERVIEW: {
     INVALID_DATA: "Invalid interview data",
@@ -100,6 +112,7 @@ export const MESSAGES = {
     NOT_AUTHORIZED: "User is not authorized to access this.",
     FEATURE_FLAGS_FETCHED: "Feature flags fetched successfully",
     FEATURE_FLAGS_ERROR: "Error fetching feature flags",
+    FEATURE_DISABLED: "This feature is currently disabled.",
   },
   AI: {
     UNAVAILABLE: "AI service temporarily unavailable.",
@@ -115,6 +128,19 @@ export const MESSAGES = {
     AUTH: "Too many login attempts. Please try again after 15 minutes.",
     INTERVIEW: "Interview session limit reached. Please try again later.",
   },
+} as const;
+
+export const CREDITS = {
+  RESUME_ANALYSIS: 1,
+  JD_MATCH: 1,
+  RESUME_BUILD: 5,
+  INTERVIEW: 1,
+  /* 
+    TODO: Implement logic to deduct credits. 
+    For now, all features are free as per user request.
+    Logic should be uncommented when billing is active.
+  */
+  IS_FREE_TRIAL: true, 
 } as const;
 
 export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTION_TIERS];

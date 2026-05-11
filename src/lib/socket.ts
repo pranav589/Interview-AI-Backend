@@ -21,6 +21,7 @@ const logger = createModuleLogger("socket");
 const PARTIAL_TEXT_BACKPRESSURE_THRESHOLD_BYTES = 512 * 1024;
 const USER_SILENCE_WINDOW_MS = 6000;
 const activeConnections = new Map<string, WebSocket>();
+const userConnections = new Map<string, Set<WebSocket>>();
 
 export const setupWebSocket = (wss: WebSocketServer) => {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
@@ -47,6 +48,12 @@ export const setupWebSocket = (wss: WebSocketServer) => {
         return;
       }
       logger.info({ userId }, "WebSocket authenticated");
+      
+      // Track user connections
+      if (!userConnections.has(userId)) {
+        userConnections.set(userId, new Set());
+      }
+      userConnections.get(userId)!.add(ws);
     } catch (err) {
       logger.error({ err }, "WS Auth Error");
       ws.close(4001, "Unauthorized");
@@ -215,6 +222,12 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
     ws.on("close", () => {
       if (threadId) activeConnections.delete(threadId);
+      if (userId && userConnections.has(userId)) {
+        userConnections.get(userId)!.delete(ws);
+        if (userConnections.get(userId)!.size === 0) {
+          userConnections.delete(userId);
+        }
+      }
       transcriber.close();
     });
   });
@@ -248,4 +261,16 @@ function manageConcurrentSessions(threadId: string, ws: WebSocket) {
     existing.close();
   }
   activeConnections.set(threadId, ws);
+}
+
+export function notifyUser(userId: string, payload: any) {
+  const sockets = userConnections.get(userId);
+  if (sockets) {
+    const message = JSON.stringify(payload);
+    sockets.forEach((ws) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    });
+  }
 }
