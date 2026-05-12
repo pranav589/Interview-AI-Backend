@@ -82,27 +82,10 @@ export async function invokeStructuredLLMWithFallback<T extends z.ZodTypeAny>(
     }
 
     try {
-      const fallbackMessages = [...messages];
-
-      const lastMessage = fallbackMessages[fallbackMessages.length - 1];
-      const content =
-        typeof lastMessage === "string" ? lastMessage : lastMessage.content;
-
-      if (
-        typeof content === "string" &&
-        !content.toLowerCase().includes("json")
-      ) {
-        fallbackMessages.push({
-          role: "system",
-          content:
-            "IMPORTANT: You must respond with a valid JSON object. Ensure the word 'json' is in your internal context.",
-        });
-      }
-
       const fallback = activeFallbackModel.withStructuredOutput(schema, {
-        method: "jsonMode",
+        method: "functionCalling",
       });
-      return (await fallback.invoke(fallbackMessages)) as any;
+      return (await fallback.invoke(messages)) as any;
     } catch (fallbackError) {
       logger.error(
         { primaryError, fallbackError },
