@@ -1,9 +1,9 @@
 import fs from "node:fs/promises";
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
 import { User } from "../models/user.model";
 import { NotFoundError, ValidationError } from "../lib/errors";
 import { MESSAGES } from "../config/constants";
 import { createModuleLogger } from "../lib/logger";
+import { resumeService } from "./resume.service";
 
 const logger = createModuleLogger("user-service");
 
@@ -20,23 +20,32 @@ export class UserService {
     return user;
   }
 
-  async uploadResume(userId: string, filePath: string) {
+  async uploadResume(
+    userId: string,
+    filePath: string,
+    fileType: string,
+    originalName: string,
+    forceReextract: boolean = false,
+  ) {
     try {
-      const loader = new PDFLoader(filePath);
-      const docs = await loader.load();
-      let resumeText = docs.map((doc) => doc.pageContent).join("\n").trim();
+      // Delegate to resumeService to parse, store, and trigger background extraction
+      const { resume, jobId, extractionStatus, isDuplicate, startedExtraction, requiresConfirmation } = await resumeService.uploadResume(
+        userId,
+        filePath,
+        fileType,
+        originalName || "Uploaded Resume",
+        true, // make it default
+        forceReextract,
+      );
+
+      const resumeText = resume.resumeText;
 
       if (!resumeText) throw new ValidationError(MESSAGES.USER.RESUME_EXTRACT_ERROR);
-
-      if (resumeText.length > 50000) {
-        logger.warn({ userId, length: resumeText.length }, "Resume truncated");
-        resumeText = resumeText.slice(0, 50000);
-      }
 
       const updatedUser = await User.findByIdAndUpdate(userId, { resume: resumeText }, { new: true });
       if (!updatedUser) throw new NotFoundError(MESSAGES.USER.NOT_FOUND);
 
-      return { updatedUser, resumeText };
+      return { updatedUser, resumeText, isDuplicate, startedExtraction, requiresConfirmation, jobId, extractionStatus, resume };
     } finally {
       await fs.unlink(filePath).catch(() => {});
     }

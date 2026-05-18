@@ -1,13 +1,11 @@
-import fs from "node:fs/promises";
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
-import mammoth from "mammoth";
 import { MatchSchema, OptimizedBulletsSchema } from "../validators/resume.validator";
 import { invokeStructuredLLMWithFallback, invokeLLMWithFallback } from "../providers/llm-with-fallback.provider";
 import { JdMatch } from "../models/jd-match.model";
 import { SystemMessage, HumanMessage } from "@langchain/core/messages";
 import { createModuleLogger } from "../lib/logger";
 import { Types } from "mongoose";
-import { ValidationError, NotFoundError } from "../lib/errors";
+import { NotFoundError } from "../lib/errors";
+import { resumeFileParserService } from "./resume-file-parser.service";
 
 const logger = createModuleLogger("jd-match-service");
 
@@ -15,22 +13,7 @@ const logger = createModuleLogger("jd-match-service");
 
 export class JdMatchService {
   async parseJdFile(filePath: string, fileType: string): Promise<string> {
-    try {
-      if (fileType === "application/pdf") {
-        const loader = new PDFLoader(filePath);
-        const docs = await loader.load();
-        return docs.map((doc) => doc.pageContent).join("\n").trim();
-      } else if (fileType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
-        const result = await mammoth.extractRawText({ path: filePath });
-        return result.value.trim();
-      } else if (fileType === "text/plain") {
-        const content = await fs.readFile(filePath, "utf-8");
-        return content.trim();
-      }
-      throw new ValidationError("Unsupported JD file type. Use PDF, DOCX, or TXT.");
-    } finally {
-      await fs.unlink(filePath).catch(() => {});
-    }
+    return resumeFileParserService.parse(filePath, fileType);
   }
 
   async match(userId: string, resumeId: string, resumeText: string, jobDescription: string, shouldUpdateEntireResume: boolean) {

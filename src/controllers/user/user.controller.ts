@@ -41,14 +41,44 @@ export const uploadResume = asyncHandler(async (req: Request, res: Response) => 
     throw new ValidationError(result.error.issues[0].message);
   }
 
-  const { updatedUser, resumeText } = await userService.uploadResume(userId, req.file!.path);
+  const forceReextract =
+    req.body.forceReextract === "true" ||
+    req.body.forceReextract === true ||
+    req.query.forceReextract === "true";
+
+  const {
+    updatedUser,
+    resumeText,
+    isDuplicate,
+    startedExtraction,
+    requiresConfirmation,
+    jobId,
+    extractionStatus,
+    resume,
+  } = await userService.uploadResume(
+    userId,
+    req.file!.path,
+    req.file!.mimetype,
+    req.file!.originalname,
+    forceReextract
+  );
 
   return res.json({
     success: true,
-    message: MESSAGES.USER.RESUME_UPLOAD_SUCCESS,
+    message: startedExtraction
+      ? "Resume uploaded. Details are being extracted in the background; we'll notify you when it's ready."
+      : isDuplicate
+      ? "This resume already exists."
+      : MESSAGES.USER.RESUME_UPLOAD_SUCCESS,
     data: {
       resumeText: resumeText.slice(0, 100) + "...",
       user: sanitizeUser(updatedUser),
+      isDuplicate,
+      startedExtraction,
+      requiresConfirmation,
+      jobId,
+      resumeId: resume?._id,
+      extractionStatus: extractionStatus || resume?.extractionStatus,
     }
   });
 });

@@ -84,7 +84,7 @@ export const MESSAGES = {
       MATCH_SUCCESS: "JD Match analysis completed",
       BUILDER_STARTED: "Resume builder session started",
       EXPORT_SUCCESS: "Resume exported successfully",
-      INVALID_FILE_TYPE: "Invalid file type. Only PDF, DOCX and Text are allowed for JD.",
+      INVALID_FILE_TYPE: "Invalid file type. Only PDF, DOCX and Text files are allowed.",
     },
   },
   INTERVIEW: {

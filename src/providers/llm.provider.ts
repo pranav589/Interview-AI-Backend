@@ -22,7 +22,7 @@ export function createLLM(options: LLMOptions = {}) {
   } = options;
 
   return new ChatOpenAI({
-    model: "openai/gpt-4o-mini",
+    model: "openai/gpt-oss-120b:free",
     apiKey: env.OPENROUTER_API_KEY,
     configuration: { baseURL: "https://openrouter.ai/api/v1" },
     timeout,
