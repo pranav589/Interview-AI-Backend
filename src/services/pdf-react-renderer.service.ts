@@ -12,39 +12,7 @@ import { AnalysisReportDocument, NormalizedResumeDocument, ResumeTemplateId } fr
 
 const logger = createModuleLogger("pdf-react-renderer");
 
-const baseStyles = StyleSheet.create({
-  page: {
-    paddingTop: 30,
-    paddingBottom: 30,
-    paddingHorizontal: 36,
-    fontSize: 10.5,
-    fontFamily: "Helvetica",
-    color: "#111827",
-    lineHeight: 1.35,
-  },
-  header: { marginBottom: 14 },
-  name: { fontSize: 20, fontWeight: 700, marginBottom: 4 },
-  contact: { fontSize: 9.5, color: "#4b5563" },
-  section: { marginBottom: 12 },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: 700,
-    marginBottom: 6,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    color: "#1f2937",
-  },
-  bodyText: { fontSize: 10, lineHeight: 1.4, color: "#111827" },
-  entry: { marginBottom: 7 },
-  rowBetween: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  role: { fontSize: 10.5, fontWeight: 700 },
-  subText: { fontSize: 9.4, color: "#4b5563" },
-  bullets: { marginTop: 3 },
-  bulletRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 2 },
-  bulletDot: { marginRight: 4, fontSize: 10 },
-  bulletText: { flex: 1, fontSize: 9.8, lineHeight: 1.35 },
-  chips: { fontSize: 9.8, lineHeight: 1.45 },
-});
+
 
 const analysisStyles = StyleSheet.create({
   reportContainer: { padding: 40, fontFamily: "Helvetica" },
@@ -146,194 +114,346 @@ const analysisStyles = StyleSheet.create({
 });
 
 const theme = {
-  modern: { accent: "#2563eb" },
-  classic: { accent: "#111827" },
-  minimalist: { accent: "#374151" },
+  modern: { accent: "#2563eb", font: "Helvetica" },
+  classic: { accent: "#111827", font: "Times-Roman" },
+  executive: { accent: "#374151", font: "Helvetica" },
 } as const;
 
-const renderSectionTitle = (title: string, accent: string) =>
-  React.createElement(
-    Text,
-    {
-      style: {
-        ...baseStyles.sectionTitle,
-        color: accent,
-      },
-    },
-    title
-  );
-
-const joinDateRange = (start?: string, end?: string) => {
-  const left = start || "";
-  const right = end || "Present";
-  if (!left && !end) return "";
-  return [left, right].filter(Boolean).join(" - ");
-};
-
-const chunkText = (value?: string) => (value ? value.split("\n").filter(Boolean) : []);
+const styles = StyleSheet.create({
+  page: {
+    padding: 30,
+    fontSize: 10,
+    lineHeight: 1.4,
+  },
+  // Executive Two-Column Layout
+  executiveContainer: {
+    flexDirection: "row",
+    height: "100%",
+  },
+  sidebar: {
+    width: "30%",
+    backgroundColor: "#f3f4f6",
+    padding: 20,
+    height: "100%",
+  },
+  mainContent: {
+    width: "70%",
+    padding: 20,
+  },
+  // Common elements
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+    paddingBottom: 2,
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  name: {
+    fontSize: 22,
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  contactInfo: {
+    fontSize: 9,
+    color: "#4b5563",
+    marginBottom: 10,
+  },
+  entryHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 2,
+  },
+  entryTitle: {
+    fontWeight: "bold",
+    fontSize: 10.5,
+  },
+  entryDate: {
+    fontSize: 9,
+    color: "#6b7280",
+  },
+  entrySub: {
+    fontSize: 9.5,
+    fontStyle: "italic",
+    marginBottom: 4,
+  },
+  bulletRow: {
+    flexDirection: "row",
+    marginBottom: 2,
+    paddingLeft: 8,
+  },
+  bulletDot: {
+    width: 10,
+    fontSize: 10,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 9.5,
+  },
+});
 
 export class PdfReactRendererService {
   async render(resume: NormalizedResumeDocument, templateId: ResumeTemplateId): Promise<Buffer> {
-    const accent = theme[templateId]?.accent || theme.modern.accent;
-    logger.info({ templateId }, "Rendering resume with react-pdf");
+    logger.info({ templateId, userName: resume.personalInfo.name }, "Rendering resume with react-pdf");
+    
+    let doc;
+    switch (templateId) {
+      case "classic":
+        doc = this.renderClassic(resume);
+        break;
+      case "executive":
+        doc = this.renderExecutive(resume);
+        break;
+      case "modern":
+      default:
+        doc = this.renderModern(resume);
+        break;
+    }
 
-    const doc = React.createElement(
+    return renderToBuffer(doc as any);
+  }
+
+  private renderModern(resume: NormalizedResumeDocument) {
+    const accent = theme.modern.accent;
+    return React.createElement(
       Document,
       null,
       React.createElement(
         Page,
-        { size: "A4", style: baseStyles.page, wrap: true },
-        React.createElement(
-          View,
-          { style: baseStyles.header },
-          React.createElement(Text, { style: { ...baseStyles.name, color: accent } }, resume.personalInfo.name),
-          React.createElement(
-            Text,
-            { style: baseStyles.contact },
-            [resume.personalInfo.email, resume.personalInfo.phone, resume.personalInfo.location]
-              .filter(Boolean)
-              .join(" | ")
-          ),
-          resume.personalInfo.links?.length
-            ? React.createElement(Text, { style: baseStyles.contact }, resume.personalInfo.links.join(" | "))
-            : null
-        ),
-
-        resume.summary
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Summary", accent),
-              ...chunkText(resume.summary).map((line, i) =>
-                React.createElement(Text, { key: `summary-${i}`, style: baseStyles.bodyText }, line)
-              )
-            )
-          : null,
-
-        resume.experience.length
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Experience", accent),
-              ...resume.experience.map((exp, idx) =>
-                React.createElement(
-                  View,
-                  { key: `exp-${idx}`, style: baseStyles.entry, wrap: false },
-                  React.createElement(
-                    View,
-                    { style: baseStyles.rowBetween },
-                    React.createElement(Text, { style: baseStyles.role }, exp.role || exp.company),
-                    React.createElement(Text, { style: baseStyles.subText }, joinDateRange(exp.startDate, exp.endDate))
-                  ),
-                  React.createElement(
-                    View,
-                    { style: baseStyles.rowBetween },
-                    React.createElement(Text, { style: baseStyles.subText }, exp.company),
-                    React.createElement(Text, { style: baseStyles.subText }, exp.location || "")
-                  ),
-                  exp.bullets.length
-                    ? React.createElement(
-                        View,
-                        { style: baseStyles.bullets },
-                        ...exp.bullets.map((bullet, bIdx) =>
-                          React.createElement(
-                            View,
-                            { key: `exp-${idx}-b-${bIdx}`, style: baseStyles.bulletRow },
-                            React.createElement(Text, { style: baseStyles.bulletDot }, "•"),
-                            React.createElement(Text, { style: baseStyles.bulletText }, bullet)
-                          )
-                        )
-                      )
-                    : null
-                )
-              )
-            )
-          : null,
-
-        resume.education.length
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Education", accent),
-              ...resume.education.map((edu, idx) =>
-                React.createElement(
-                  View,
-                  { key: `edu-${idx}`, style: baseStyles.entry, wrap: false },
-                  React.createElement(
-                    View,
-                    { style: baseStyles.rowBetween },
-                    React.createElement(Text, { style: baseStyles.role }, edu.degree || edu.school),
-                    React.createElement(Text, { style: baseStyles.subText }, edu.gradDate || "")
-                  ),
-                  React.createElement(
-                    View,
-                    { style: baseStyles.rowBetween },
-                    React.createElement(Text, { style: baseStyles.subText }, edu.school),
-                    React.createElement(Text, { style: baseStyles.subText }, edu.location || "")
-                  ),
-                  ...(edu.details || []).map((detail, dIdx) =>
-                    React.createElement(Text, { key: `edu-${idx}-d-${dIdx}`, style: baseStyles.bulletText }, detail)
-                  )
-                )
-              )
-            )
-          : null,
-
-        resume.projects.length
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Projects", accent),
-              ...resume.projects.map((project, idx) =>
-                React.createElement(
-                  View,
-                  { key: `project-${idx}`, style: baseStyles.entry, wrap: false },
-                  React.createElement(Text, { style: baseStyles.role }, project.name),
-                  project.description ? React.createElement(Text, { style: baseStyles.bodyText }, project.description) : null,
-                  ...(project.bullets || []).map((bullet, bIdx) =>
-                    React.createElement(
-                      View,
-                      { key: `project-${idx}-b-${bIdx}`, style: baseStyles.bulletRow },
-                      React.createElement(Text, { style: baseStyles.bulletDot }, "•"),
-                      React.createElement(Text, { style: baseStyles.bulletText }, bullet)
-                    )
-                  )
-                )
-              )
-            )
-          : null,
-
-        resume.certifications.length
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Certifications", accent),
-              ...resume.certifications.map((cert, idx) =>
-                React.createElement(
-                  View,
-                  { key: `cert-${idx}`, style: baseStyles.entry, wrap: false },
-                  React.createElement(
-                    Text,
-                    { style: baseStyles.bodyText },
-                    [cert.name, cert.issuer, cert.date].filter(Boolean).join(" | ")
-                  )
-                )
-              )
-            )
-          : null,
-
-        resume.skills.length
-          ? React.createElement(
-              View,
-              { style: baseStyles.section },
-              renderSectionTitle("Skills", accent),
-              React.createElement(Text, { style: baseStyles.chips }, resume.skills.join(", "))
-            )
-          : null
+        { size: "A4", style: [styles.page, { fontFamily: theme.modern.font }] },
+        this.renderHeader(resume, accent, "center"),
+        ...this.getSections(resume, accent)
       )
     );
+  }
 
-    return renderToBuffer(doc as any);
+  private renderClassic(resume: NormalizedResumeDocument) {
+    const accent = theme.classic.accent;
+    return React.createElement(
+      Document,
+      null,
+      React.createElement(
+        Page,
+        { size: "A4", style: [styles.page, { fontFamily: theme.classic.font }] },
+        this.renderHeader(resume, accent, "left"),
+        ...this.getSections(resume, accent)
+      )
+    );
+  }
+
+  private renderExecutive(resume: NormalizedResumeDocument) {
+    const accent = theme.executive.accent;
+    return React.createElement(
+      Document,
+      null,
+      React.createElement(
+        Page,
+        { size: "A4", style: [styles.page, { padding: 0, fontFamily: theme.executive.font }] },
+        React.createElement(
+          View,
+          { style: styles.executiveContainer },
+          React.createElement(
+            View,
+            { style: styles.sidebar },
+            React.createElement(Text, { style: [styles.name, { fontSize: 18 }] }, resume.personalInfo.name),
+            React.createElement(Text, { style: { fontSize: 8, marginBottom: 15 } }, resume.personalInfo.email),
+            React.createElement(Text, { style: { fontSize: 8, marginBottom: 5 } }, resume.personalInfo.phone),
+            React.createElement(Text, { style: { fontSize: 8, marginBottom: 15 } }, resume.personalInfo.location),
+            
+            this.renderSidebarSection("Skills", resume.skills),
+            this.renderSidebarSection("Languages", resume.languages || []),
+            this.renderSidebarSection("Links", resume.personalInfo.links || [])
+          ),
+          React.createElement(
+            View,
+            { style: styles.mainContent },
+            ...this.getSections(resume, accent)
+          )
+        )
+      )
+    );
+  }
+
+  private getSections(resume: NormalizedResumeDocument, accent: string) {
+    const order = resume.sectionOrder?.length 
+      ? resume.sectionOrder 
+      : ["summary", "experience", "projects", "education", "skills", "certifications", "languages", "awards"];
+
+    const sectionMap: Record<string, () => any> = {
+      summary: () => this.renderSummary(resume, accent),
+      experience: () => this.renderExperience(resume, accent),
+      projects: () => this.renderProjects(resume, accent),
+      education: () => this.renderEducation(resume, accent),
+      skills: () => this.renderSkills(resume, accent),
+      certifications: () => this.renderCertifications(resume, accent),
+      languages: () => this.renderLanguages(resume, accent),
+      awards: () => this.renderAwards(resume, accent),
+    };
+
+    return order.map(id => sectionMap[id]?.()).filter(Boolean);
+  }
+
+  private renderHeader(resume: NormalizedResumeDocument, accent: string, align: "left" | "center") {
+    return React.createElement(
+      View,
+      { style: { textAlign: align, marginBottom: 15 } },
+      React.createElement(Text, { style: [styles.name, { color: accent }] }, resume.personalInfo.name),
+      React.createElement(
+        Text,
+        { style: styles.contactInfo },
+        [resume.personalInfo.email, resume.personalInfo.phone, resume.personalInfo.location].filter(Boolean).join(" | ")
+      )
+    );
+  }
+
+  private renderSummary(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.summary) return null;
+    return React.createElement(
+      View,
+      { style: { marginBottom: 10 } },
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Professional Summary"),
+      React.createElement(Text, { style: { fontSize: 9.5 } }, resume.summary)
+    );
+  }
+
+  private renderExperience(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.experience.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Experience"),
+      ...resume.experience.map((exp, i) =>
+        React.createElement(
+          View,
+          { key: i, style: { marginBottom: 8 }, wrap: false },
+          React.createElement(
+            View,
+            { style: styles.entryHeader },
+            React.createElement(Text, { style: styles.entryTitle }, exp.role),
+            React.createElement(Text, { style: styles.entryDate }, `${exp.startDate} - ${exp.endDate || "Present"}`)
+          ),
+          React.createElement(Text, { style: styles.entrySub }, exp.company),
+          ...exp.bullets.map((bullet, j) =>
+            React.createElement(
+              View,
+              { key: j, style: styles.bulletRow },
+              React.createElement(Text, { style: styles.bulletDot }, "•"),
+              React.createElement(Text, { style: styles.bulletText }, bullet)
+            )
+          )
+        )
+      )
+    );
+  }
+
+  private renderEducation(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.education.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Education"),
+      ...resume.education.map((edu, i) =>
+        React.createElement(
+          View,
+          { key: i, style: { marginBottom: 5 } },
+          React.createElement(
+            View,
+            { style: styles.entryHeader },
+            React.createElement(Text, { style: styles.entryTitle }, edu.degree),
+            React.createElement(Text, { style: styles.entryDate }, edu.gradDate)
+          ),
+          React.createElement(Text, { style: styles.entrySub }, edu.school)
+        )
+      )
+    );
+  }
+
+  private renderProjects(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.projects.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Projects"),
+      ...resume.projects.map((proj, i) =>
+        React.createElement(
+          View,
+          { key: i, style: { marginBottom: 6 } },
+          React.createElement(Text, { style: styles.entryTitle }, proj.name),
+          React.createElement(Text, { style: { fontSize: 9, marginBottom: 2 } }, proj.description),
+          ...(proj.bullets || []).map((bullet, j) =>
+            React.createElement(
+              View,
+              { key: j, style: styles.bulletRow },
+              React.createElement(Text, { style: styles.bulletDot }, "•"),
+              React.createElement(Text, { style: styles.bulletText }, bullet)
+            )
+          )
+        )
+      )
+    );
+  }
+
+  private renderSkills(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.skills.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Skills"),
+      React.createElement(Text, { style: { fontSize: 9.5 } }, resume.skills.join(", "))
+    );
+  }
+
+  private renderCertifications(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.certifications.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Certifications"),
+      ...resume.certifications.map((cert, i) =>
+        React.createElement(Text, { key: i, style: { fontSize: 9, marginBottom: 2 } }, `${cert.name} - ${cert.issuer} (${cert.date})`)
+      )
+    );
+  }
+
+  private renderLanguages(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.languages.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Languages"),
+      React.createElement(Text, { style: { fontSize: 9.5 } }, resume.languages.join(", "))
+    );
+  }
+
+  private renderAwards(resume: NormalizedResumeDocument, accent: string) {
+    if (!resume.awards.length) return null;
+    return React.createElement(
+      View,
+      null,
+      React.createElement(Text, { style: [styles.sectionTitle, { color: accent }] }, "Awards"),
+      ...resume.awards.map((award, i) =>
+        React.createElement(
+          View,
+          { key: i, style: styles.bulletRow },
+          React.createElement(Text, { style: styles.bulletDot }, "•"),
+          React.createElement(Text, { style: styles.bulletText }, award)
+        )
+      )
+    );
+  }
+
+  private renderSidebarSection(title: string, items: string[]) {
+    if (!items.length) return null;
+    return React.createElement(
+      View,
+      { style: { marginTop: 15 } },
+      React.createElement(Text, { style: { fontSize: 9, fontWeight: "bold", textTransform: "uppercase", marginBottom: 5, borderBottomWidth: 1, borderBottomColor: "#d1d5db" } }, title),
+      ...items.map((item, i) =>
+        React.createElement(Text, { key: i, style: { fontSize: 8, marginBottom: 2 } }, item)
+      )
+    );
   }
 
   async renderAnalysisReport(report: AnalysisReportDocument): Promise<Buffer> {

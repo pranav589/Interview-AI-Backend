@@ -17,7 +17,15 @@ import {
   getUserJdMatches,
   getResumeJob,
   downloadResumeJobArtifact,
-  exportResumeAnalysis
+  exportResumeAnalysis,
+  generateTemplates,
+  previewTemplate,
+  downloadTemplate,
+  getBuilderSession,
+  updateBuilderSession,
+  completeBuilderSession,
+  runBuilderCommand,
+  setDefaultResume
 } from "../controllers/user/resume.controller";
 
 const router = Router();
@@ -34,11 +42,17 @@ const resumeUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const builderUpload = multer({
+  dest: "uploads/",
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
 router.use(requireAuth);
 router.use(checkSubscription);
 
 router.post("/upload", resumeUpload.single("resume"), uploadResume);
 router.get("/", getResumes);
+router.patch("/:id/default", setDefaultResume);
 
 // Analyzer
 router.post("/analyze", analyzeResume);
@@ -53,8 +67,15 @@ router.get("/jd-match/:id", getJdMatch);
 router.post("/jd-match/:id/export", exportJdMatch);
 
 // Builder
-router.post("/builder/start", startBuilder);
+router.post("/builder/start", builderUpload.single("file"), startBuilder);
 router.post("/builder/message", sendBuilderMessage);
+router.post("/builder/generate", generateTemplates);
+router.get("/builder/:id", getBuilderSession);
+router.patch("/builder/:id", updateBuilderSession);
+router.post("/builder/:id/complete", completeBuilderSession);
+router.post("/builder/:id/command", runBuilderCommand);
+router.get("/builder/:id/preview/:template", previewTemplate);
+router.get("/builder/:id/download/:template", downloadTemplate);
 router.post("/builder/export", exportResume);
 
 // Async jobs

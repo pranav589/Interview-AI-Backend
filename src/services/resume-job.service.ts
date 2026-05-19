@@ -51,6 +51,14 @@ export class ResumeJobService {
     await ResumeJob.updateOne({ _id: jobId, userId }, { $set: { artifact } });
   }
 
+  async getLatestJobForResume(userId: string, jobType: ResumeJobType, resumeId: string): Promise<IResumeJob | null> {
+    return ResumeJob.findOne({
+      userId,
+      jobType,
+      "inputRef.resumeId": new Types.ObjectId(resumeId),
+    }).sort({ createdAt: -1 });
+  }
+
   async getJobById(jobId: string, userId: string): Promise<IResumeJob> {
     const job = await ResumeJob.findOne({ _id: jobId, userId });
     if (!job) throw new NotFoundError("Job not found");
