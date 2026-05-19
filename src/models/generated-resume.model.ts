@@ -45,7 +45,10 @@ export interface IGeneratedResume extends Document {
     }>;
   };
   status: "in-progress" | "completed";
+  /** "extracting" means the background LLM intake job is still running */
   currentStep: string;
+  extractionStatus?: "pending" | "processing" | "completed" | "failed";
+  extractionError?: string;
   fileKey?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -125,6 +128,14 @@ const generatedResumeSchema = new Schema<IGeneratedResume>(
       default: "personalInfo",
     },
     fileKey: String,
+    extractionStatus: {
+      type: String,
+      enum: ["pending", "processing", "completed", "failed"],
+      default: undefined,
+    },
+    extractionError: {
+      type: String,
+    },
   },
   {
     timestamps: true,
