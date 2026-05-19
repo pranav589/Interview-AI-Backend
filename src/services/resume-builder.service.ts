@@ -1,4 +1,4 @@
-import { GeneratedResume } from "../models/generated-resume.model";
+import { GeneratedResume, IGeneratedResume } from "../models/generated-resume.model";
 import { createModuleLogger } from "../lib/logger";
 import { Types } from "mongoose";
 import { NotFoundError, ValidationError } from "../lib/errors";
@@ -144,6 +144,139 @@ export class ResumeBuilderService {
       fileType: "saved-resume",
       resumeId: String(resume._id),
     });
+  }
+
+  /**
+   * Creates a placeholder session immediately and kicks off LLM extraction in the
+   * background. Returns the session (with currentStep "extracting") and a jobId so
+   * the client can poll for completion.
+   */
+  async startSessionInBackground(
+    userId: string,
+    name: string,
+    extractedText: string,
+    source: { fileName?: string; fileType?: string; resumeId?: string },
+  ): Promise<{ session: IGeneratedResume; jobId: string }> {
+    // Create a lightweight placeholder session right away
+    const session = await GeneratedResume.create({
+      userId: new Types.ObjectId(userId),
+      name,
+      resumeData: {
+        personalInfo: {},
+        summary: "",
+        experience: [],
+        education: [],
+        skills: [],
+        projects: [],
+        certifications: [],
+        languages: [],
+        awards: [],
+      },
+      chatHistory: [],
+      completionMap: {},
+      currentStep: "extracting",
+      extractionStatus: "pending",
+      source: {
+        fileName: source.fileName,
+        fileType: source.fileType,
+        resumeId: source.resumeId,
+        extractedText: sourceSnapshot(extractedText),
+      },
+      status: "in-progress",
+    });
+
+    return { session, jobId: "" }; // jobId filled by caller after ResumeJob is created
+  }
+
+  /**
+   * Runs the LLM intake extraction and updates the session in-place.
+   * Called as a fire-and-forget from the controller.
+   */
+  async runBackgroundExtraction(
+    sessionId: string,
+    userId: string,
+    extractedText: string,
+    jobId: string,
+  ): Promise<void> {
+    const { resumeJobService } = await import("./resume-job.service");
+    const { notificationService } = await import("./notification.service");
+
+    logger.info({ sessionId }, "Starting background builder extraction");
+
+    await GeneratedResume.updateOne(
+      { _id: sessionId },
+      { $set: { extractionStatus: "processing", currentStep: "extracting" } },
+    );
+    await resumeJobService.updateStatus(jobId, userId, "processing");
+
+    try {
+      const intake = await this.extractAndProcessResume(extractedText);
+
+      const firstQuestion = intake.pendingQuestions.find((q: any) => !q.resolved);
+
+      await GeneratedResume.updateOne(
+        { _id: sessionId },
+        {
+          $set: {
+            extractionStatus: "completed",
+            currentStep: firstQuestion ? "intake_chat" : "review_ready",
+            resumeData: intake.resumeData,
+            completionMap: this.createCompletionMap(intake.resumeData),
+            chatHistory: [
+              {
+                role: "assistant",
+                content: this.createOpeningMessage(intake, firstQuestion?.question),
+              },
+            ],
+            intakeMetadata: {
+              detectedExperienceYears: intake.detectedExperienceYears,
+              timelineGaps: intake.timelineGaps,
+              missingFields: intake.missingFields,
+              weakBullets: intake.weakBullets,
+              pendingQuestions: intake.pendingQuestions,
+            },
+          },
+        },
+      );
+
+      await resumeJobService.updateStatus(jobId, userId, "completed", {
+        resultRef: { generatedResumeId: sessionId },
+      });
+
+      logger.info({ sessionId }, "Background builder extraction completed");
+
+      await notificationService.createNotification({
+        userId,
+        type: "success",
+        title: "Resume Ready",
+        message: "Your resume details have been extracted. Click Continue to open the builder.",
+        link: `/resume/builder/session/${sessionId}/continue`,
+      });
+    } catch (error: any) {
+      logger.error({ error, sessionId }, "Background builder extraction failed");
+
+      await GeneratedResume.updateOne(
+        { _id: sessionId },
+        {
+          $set: {
+            extractionStatus: "failed",
+            extractionError: error?.message || String(error),
+            currentStep: "extraction_failed",
+          },
+        },
+      );
+
+      await resumeJobService.updateStatus(jobId, userId, "failed", {
+        error: error?.message || "Builder extraction failed",
+      });
+
+      await notificationService.createNotification({
+        userId,
+        type: "error",
+        title: "Extraction Failed",
+        message: "We couldn't extract your resume details. Please try uploading again.",
+      });
+    }
   }
 
   async extractAndProcessResume(extractedText: string) {
