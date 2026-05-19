@@ -100,6 +100,17 @@ export const updateSettings = asyncHandler(async (req: Request, res: Response) =
   });
 });
 
+export const getDashboardStats = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const stats = await userService.getDashboardStats(userId);
+
+  return res.json({
+    success: true,
+    message: "Dashboard statistics successfully retrieved.",
+    data: stats,
+  });
+});
+
 function sanitizeUser(user: any) {
   return {
     id: user.id,

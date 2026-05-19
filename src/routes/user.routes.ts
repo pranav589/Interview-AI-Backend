@@ -2,7 +2,7 @@ import { Router } from "express";
 import requireAuth from "../middleware/requireAuth";
 import { MESSAGES } from "../config/constants";
 import multer from "multer";
-import { getProfile, uploadResume, updateSettings, completeOnboarding } from "../controllers/user/user.controller";
+import { getProfile, uploadResume, updateSettings, completeOnboarding, getDashboardStats } from "../controllers/user/user.controller";
 
 const router = Router();
 const upload = multer({ 
@@ -47,5 +47,8 @@ router.post(
 
 // Update user settings
 router.patch("/settings", requireAuth, updateSettings);
+
+// Get integrated dashboard statistics
+router.get("/dashboard-stats", requireAuth, getDashboardStats);
 
 export default router;
