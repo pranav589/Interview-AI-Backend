@@ -1,4 +1,4 @@
-export type ResumeTemplateId = "modern" | "classic" | "minimalist";
+export type ResumeTemplateId = "modern" | "classic" | "executive" | "minimalist";
 
 export interface ResumePersonalInfo {
   name: string;
@@ -45,6 +45,9 @@ export interface NormalizedResumeDocument {
   skills: string[];
   projects: ResumeProjectItem[];
   certifications: ResumeCertificationItem[];
+  languages: string[];
+  awards: string[];
+  sectionOrder?: string[];
 }
 
 export interface SectionAudit {
@@ -133,5 +136,8 @@ export const normalizeResumeDocument = (rawData: any): NormalizedResumeDocument 
         date: safeText(cert?.date) || undefined,
       }))
       .filter((cert) => cert.name),
+    languages: toArray<string>(rawData?.languages).map(safeText).filter(Boolean),
+    awards: toArray<string>(rawData?.awards).map(safeText).filter(Boolean),
+    sectionOrder: toArray<string>(rawData?.sectionOrder).map(safeText).filter(Boolean),
   };
 };

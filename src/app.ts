@@ -23,6 +23,12 @@ const app = express();
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "frame-ancestors": ["'self'", env.FRONTEND_URL, "http://localhost:3000", "http://localhost:3001"],
+      },
+    },
   }),
 );
 

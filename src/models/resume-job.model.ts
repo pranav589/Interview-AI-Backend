@@ -1,6 +1,6 @@
 import { Schema, model, Document, Types } from "mongoose";
 
-export type ResumeJobType = "resume-analysis" | "jd-match" | "builder-export" | "jd-match-export";
+export type ResumeJobType = "resume-extraction" | "resume-analysis" | "jd-match" | "builder-export" | "jd-match-export";
 export type ResumeJobStatus = "queued" | "processing" | "completed" | "failed";
 
 export interface IResumeJob extends Document {
@@ -38,7 +38,7 @@ const resumeJobSchema = new Schema<IResumeJob>(
     },
     jobType: {
       type: String,
-      enum: ["resume-analysis", "jd-match", "builder-export", "jd-match-export"],
+      enum: ["resume-extraction", "resume-analysis", "jd-match", "builder-export", "jd-match-export"],
       required: true,
       index: true,
     },

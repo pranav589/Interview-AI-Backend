@@ -15,6 +15,7 @@ import { MESSAGES, CREDITS } from "../../config/constants";
 import { ValidationError, NotFoundError, ForbiddenError } from "../../lib/errors";
 import { isFeatureEnabled } from "../../utils/feature-flags";
 import { logger } from "../../lib/logger";
+import { resumeTemplateGeneratorService } from "../../services/resume-template-generator.service";
 
 const toSafeString = (value: unknown) => (value === null || value === undefined ? "" : String(value).trim());
 
@@ -50,14 +51,30 @@ export const uploadResume = asyncHandler(async (req: Request, res: Response) => 
   if (!req.file) throw new ValidationError("Resume file is required");
 
   const name = req.body.name || req.file.originalname;
-  const isDefault = req.body.isDefault === "true";
+  const isDefault = req.body.isDefault === "true" || req.body.isDefault === true;
+  const forceReextract =
+    req.body.forceReextract === "true" ||
+    req.body.forceReextract === true ||
+    req.query.forceReextract === "true";
 
-  const resume = await resumeService.uploadResume(userId, req.file.path, name, isDefault);
+  const result = await resumeService.uploadResume(userId, req.file.path, req.file.mimetype, name, isDefault, forceReextract);
 
   return res.json({
     success: true,
-    message: MESSAGES.USER.RESUME.UPLOAD_SUCCESS,
-    data: resume,
+    message: result.startedExtraction
+      ? "Resume uploaded. Details are being extracted in the background; we'll notify you when it's ready."
+      : result.isDuplicate
+      ? "This resume already exists."
+      : MESSAGES.USER.RESUME.UPLOAD_SUCCESS,
+    data: {
+      resume: result.resume,
+      resumeId: result.resume._id,
+      jobId: result.jobId,
+      extractionStatus: result.extractionStatus || result.resume.extractionStatus,
+      isDuplicate: result.isDuplicate,
+      startedExtraction: result.startedExtraction,
+      requiresConfirmation: result.requiresConfirmation,
+    },
   });
 });
 
@@ -69,6 +86,19 @@ export const getResumes = asyncHandler(async (req: Request, res: Response) => {
     success: true,
     message: MESSAGES.USER.RESUME.FETCH_SUCCESS,
     data: resumes,
+  });
+});
+
+export const setDefaultResume = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id } = req.params;
+
+  const resume = await resumeService.setDefaultResume(id, userId);
+
+  return res.json({
+    success: true,
+    message: "Default resume updated",
+    data: resume,
   });
 });
 
@@ -203,9 +233,24 @@ export const startBuilder = asyncHandler(async (req: Request, res: Response) => 
     throw new ForbiddenError(MESSAGES.SYSTEM.FEATURE_DISABLED);
   }
   const userId = (req as AuthenticatedRequest).user.id;
-  const { name } = req.body;
+  const { name, resumeId } = req.body;
 
-  const session = await resumeBuilderService.startSession(userId, name || "My New Resume");
+  if (resumeId && !req.file) {
+    const resume = await resumeService.getResumeById(resumeId, userId);
+    const session = await resumeBuilderService.startSessionFromSavedResume(userId, resume);
+
+    return res.json({
+      success: true,
+      message: MESSAGES.USER.RESUME.BUILDER_STARTED,
+      data: session,
+    });
+  }
+
+  const session = await resumeBuilderService.startSession(
+    userId,
+    name || req.file?.originalname || "My Resume",
+    req.file,
+  );
 
   return res.json({
     success: true,
@@ -223,6 +268,67 @@ export const sendBuilderMessage = asyncHandler(async (req: Request, res: Respons
   return res.json({
     success: true,
     data: session,
+  });
+});
+
+export const getBuilderSession = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id } = req.params;
+
+  const session = await resumeBuilderService.getSession(id, userId);
+
+  return res.json({
+    success: true,
+    data: session,
+  });
+});
+
+export const updateBuilderSession = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id } = req.params;
+  const { resumeData, templateId, currentStep } = req.body;
+
+  const session = await resumeBuilderService.updateSession(id, userId, {
+    resumeData,
+    templateId,
+    currentStep,
+  });
+
+  return res.json({
+    success: true,
+    data: session,
+  });
+});
+
+export const completeBuilderSession = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id } = req.params;
+
+  const session = await resumeBuilderService.completeSession(id, userId);
+
+  return res.json({
+    success: true,
+    data: session,
+  });
+});
+
+export const runBuilderCommand = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id } = req.params;
+  const { command, fieldPath, selectedText, fieldText, resumeData, targetContext } = req.body;
+
+  const result = await resumeBuilderService.runCommand(id, userId, {
+    command,
+    fieldPath,
+    selectedText,
+    fieldText,
+    resumeData,
+    targetContext,
+  });
+
+  return res.json({
+    success: true,
+    data: result,
   });
 });
 
@@ -419,4 +525,49 @@ export const downloadResumeJobArtifact = asyncHandler(async (req: Request, res: 
   res.setHeader("Content-Type", job.artifact.mimeType);
   res.setHeader("Content-Disposition", `attachment; filename=${job.artifact.fileName || "resume.pdf"}`);
   return res.send(fileBuffer);
+});
+
+export const generateTemplates = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { sessionId } = req.body;
+
+  await resumeBuilderService.generateTemplates(sessionId, userId);
+
+  return res.json({
+    success: true,
+    data: {
+      templates: [
+        { id: "modern", name: "Modern Template", description: "Sleek, two-column layout with blue accents." },
+        { id: "classic", name: "Classic Template", description: "Conservative, single-column serif design." },
+        { id: "executive", name: "Executive Template", description: "High-density layout with charcoal sidebar." }
+      ]
+    }
+  });
+});
+
+export const previewTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id: sessionId, template: templateId } = req.params;
+
+  const buffer = await resumeBuilderService.getTemplateBuffer(sessionId, userId, templateId, "pdf");
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", "inline");
+  return res.send(buffer);
+});
+
+export const downloadTemplate = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as AuthenticatedRequest).user.id;
+  const { id: sessionId, template: templateId } = req.params;
+  const format = (req.query.format as "pdf" | "docx") || "pdf";
+
+  const buffer = await resumeBuilderService.getTemplateBuffer(sessionId, userId, templateId, format);
+
+  const contentType = format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  const extension = format === "pdf" ? "pdf" : "docx";
+  const fileName = `Resume_${templateId}_${new Date().getTime()}.${extension}`;
+
+  res.setHeader("Content-Type", contentType);
+  res.setHeader("Content-Disposition", `attachment; filename=${fileName}`);
+  return res.send(buffer);
 });
