@@ -119,7 +119,7 @@ export class ResumeBuilderService {
     if (!resume.resumeText?.trim()) throw new ValidationError("Saved resume text is empty");
 
     if (resume.extractionStatus === "processing" || resume.extractionStatus === "pending") {
-      throw new ValidationError("This resume is currently being analyzed in the background. Please wait for the extraction to finish.");
+      throw new ValidationError("This resume is currently undergoing background details extraction. Please wait for it to complete.");
     }
 
     if (resume.extractionStatus === "completed" && resume.resumeData) {
