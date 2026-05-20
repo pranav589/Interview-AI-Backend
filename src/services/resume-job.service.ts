@@ -1,6 +1,7 @@
 import { Types } from "mongoose";
 import { NotFoundError } from "../lib/errors";
 import { IResumeJob, ResumeJob, ResumeJobStatus, ResumeJobType } from "../models/resume-job.model";
+import { notifyUser } from "../lib/socket";
 
 type JobInputRef = {
   resumeId?: string;
@@ -45,6 +46,18 @@ export class ResumeJobService {
     }
 
     await ResumeJob.updateOne({ _id: jobId, userId }, { $set: update });
+
+    try {
+      const updatedJob = await ResumeJob.findOne({ _id: jobId, userId });
+      if (updatedJob) {
+        notifyUser(userId, {
+          type: "JOB_UPDATED",
+          data: updatedJob,
+        });
+      }
+    } catch (err) {
+      // Prevent side-effects on socket errors
+    }
   }
 
   async attachArtifact(jobId: string, userId: string, artifact: { fileName: string; mimeType: string; contentBase64: string }) {
