@@ -133,12 +133,6 @@ export const analyzeResume = asyncHandler(
 
     const resume = await resumeService.getResumeById(resumeId, userId);
 
-    if (resume.extractionStatus === "pending" || resume.extractionStatus === "processing") {
-      throw new ValidationError(
-        "This resume is currently undergoing background details extraction. Please wait for it to complete.",
-      );
-    }
-
     /* 
   // Credit Check Logic (Commented out as per request)
   if (req.user.credits < CREDITS.RESUME_ANALYSIS) {
@@ -225,12 +219,6 @@ export const runJdMatch = asyncHandler(async (req: Request, res: Response) => {
     throw new ValidationError("Job description (text or file) is required");
 
   const resume = await resumeService.getResumeById(resumeId, userId);
-
-  if (resume.extractionStatus === "pending" || resume.extractionStatus === "processing") {
-    throw new ValidationError(
-      "This resume is currently undergoing background details extraction. Please wait for it to complete.",
-    );
-  }
 
   /*
   // Credit Check Logic
