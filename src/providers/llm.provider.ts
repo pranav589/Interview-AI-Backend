@@ -22,7 +22,7 @@ export function createLLM(options: LLMOptions = {}) {
   } = options;
 
   return new ChatOpenAI({
-    model: "openai/gpt-oss-120b:free",
+    model: "meta-llama/llama-3.3-70b-instruct:free",
     apiKey: env.OPENROUTER_API_KEY,
     configuration: { baseURL: "https://openrouter.ai/api/v1" },
     timeout,
@@ -44,6 +44,7 @@ export function createLLM(options: LLMOptions = {}) {
     maxTokens,
     temperature: 1,
     topP: 0.95,
+    callbacks,
     ...(jsonMode && {
       modelKwargs: { 
         response_format: { type: "json_object" },

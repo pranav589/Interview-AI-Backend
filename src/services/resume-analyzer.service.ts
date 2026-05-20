@@ -16,6 +16,15 @@ export class ResumeAnalyzerService {
       You are an expert ATS (Applicant Tracking System) and professional resume reviewer.
       Your goal is to provide a detailed, objective analysis of the provided resume text.
       
+      You MUST analyze and score each of the following sections under the "sections" object (if a section is not present in the resume, set present to false, score to 0, positives to [], and note that it is missing in the negatives array):
+      - contact
+      - summary (professional summary / profile statement)
+      - experience (work history)
+      - education
+      - skills
+      - projects
+      - certifications
+      
       Score each section from 0-100 based on:
       - Content quality and impact
       - Formatting and readability
@@ -35,14 +44,32 @@ export class ResumeAnalyzerService {
         new SystemMessage(systemPrompt),
         new HumanMessage(`Analyze this resume:\n\n${resumeText}`),
       ],
-      { timeout: 45000 }
+      { timeout: 45000 },
     );
+
+    const defaultSection = {
+      present: false,
+      score: 0,
+      positives: [],
+      negatives: ["Section not found in resume or not analyzed."],
+    };
+
+    const sections = {
+      contact: analysis.sections?.contact || defaultSection,
+      summary: analysis.sections?.summary || defaultSection,
+      experience: analysis.sections?.experience || defaultSection,
+      education: analysis.sections?.education || defaultSection,
+      skills: analysis.sections?.skills || defaultSection,
+      projects: analysis.sections?.projects || defaultSection,
+      certifications: analysis.sections?.certifications || defaultSection,
+    };
 
     const savedAnalysis = await ResumeAnalysis.create({
       userId: new Types.ObjectId(userId),
       resumeId: new Types.ObjectId(resumeId),
       resumeText,
       ...analysis,
+      sections,
     });
 
     return savedAnalysis;
