@@ -40,9 +40,15 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URL: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(), // Fallback LLM (Gemini)
   GROQ_API_KEY: z.string().optional(), // Fallback LLM (Groq)
+
   TAVILY_API_KEY: z.string().optional(), // Web search tool
   COOKIE_DOMAIN: z.string().optional(), // Shared root domain (e.g. .interviewai.net.in)
   PDF_RENDERER_MODE: z.enum(["legacy", "new"]).default("new"),
+
+  // LangSmith Observability
+  LANGSMITH_TRACING: z.string().optional(),
+  LANGSMITH_API_KEY: z.string().optional(),
+  LANGSMITH_PROJECT: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

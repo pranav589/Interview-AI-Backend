@@ -1,5 +1,4 @@
 import { ChatOpenAI } from "@langchain/openai";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { env } from "../config/env";
 import { createModuleLogger } from "../lib/logger";
 
@@ -11,6 +10,8 @@ export interface LLMOptions {
   maxRetries?: number;
   tools?: any[];
   maxTokens?: number;
+  traceName?: string;
+  userId?: string;
 }
 
 export function createLLM(options: LLMOptions = {}) {
@@ -22,7 +23,7 @@ export function createLLM(options: LLMOptions = {}) {
   } = options;
 
   return new ChatOpenAI({
-    model: "meta-llama/llama-3.3-70b-instruct:free",
+    model: "openrouter/free",
     apiKey: env.OPENROUTER_API_KEY,
     configuration: { baseURL: "https://openrouter.ai/api/v1" },
     timeout,

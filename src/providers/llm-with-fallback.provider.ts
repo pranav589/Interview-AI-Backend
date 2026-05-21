@@ -12,13 +12,21 @@ export async function invokeLLMMessageWithFallback(
   messages: any[],
   options: LLMOptions = {},
 ): Promise<BaseMessage> {
+  const tags = options.userId ? [options.userId] : undefined;
+  const metadata = options.userId ? { userId: options.userId } : undefined;
+
   let primary = createLLM(options);
   if (options.tools && options.tools.length > 0) {
     primary = (primary as any).bindTools(options.tools, { strict: true });
   }
 
   try {
-    return await primary.invoke(messages);
+    const result = await primary.invoke(messages, { 
+      runName: options.traceName ? `${options.traceName} (Primary)` : undefined,
+      tags,
+      metadata,
+    });
+    return result;
   } catch (primaryError) {
     logger.warn(
       { err: primaryError },
@@ -36,7 +44,12 @@ export async function invokeLLMMessageWithFallback(
     }
 
     try {
-      return await activeFallback.invoke(messages);
+      const result = await activeFallback.invoke(messages, { 
+        runName: options.traceName ? `${options.traceName} (Fallback)` : undefined,
+        tags,
+        metadata,
+      });
+      return result;
     } catch (fallbackError) {
       logger.error({ primaryError, fallbackError }, "Both LLMs failed");
       throw new Error(MESSAGES.AI.UNAVAILABLE);
@@ -57,6 +70,9 @@ export async function invokeStructuredLLMWithFallback<T extends z.ZodTypeAny>(
   messages: any[],
   options: LLMOptions = {},
 ): Promise<z.infer<T>> {
+  const tags = options.userId ? [options.userId] : undefined;
+  const metadata = options.userId ? { userId: options.userId } : undefined;
+
   let primaryModel = createLLM(options);
   if (options.tools && options.tools.length > 0) {
     primaryModel = (primaryModel as any).bindTools(options.tools, {
@@ -66,7 +82,11 @@ export async function invokeStructuredLLMWithFallback<T extends z.ZodTypeAny>(
   const primary = primaryModel.withStructuredOutput(schema); // Removed strict: true for compatibility
 
   try {
-    return (await primary.invoke(messages)) as any;
+    return (await primary.invoke(messages, {
+      runName: options.traceName ? `${options.traceName} (Primary)` : undefined,
+      tags,
+      metadata,
+    })) as any;
   } catch (primaryError) {
     logger.warn(
       { err: primaryError },
@@ -85,7 +105,12 @@ export async function invokeStructuredLLMWithFallback<T extends z.ZodTypeAny>(
       const fallback = activeFallbackModel.withStructuredOutput(schema, {
         method: "functionCalling",
       });
-      return (await fallback.invoke(messages)) as any;
+      const result = (await fallback.invoke(messages, { 
+        runName: options.traceName ? `${options.traceName} (Fallback)` : undefined,
+        tags,
+        metadata,
+      })) as any;
+      return result;
     } catch (fallbackError) {
       logger.error(
         { primaryError, fallbackError },
