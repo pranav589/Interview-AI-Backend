@@ -19,17 +19,23 @@ async function invokeWithTimeout<T>(
 }
 
 export class OrchestrationService {
-  async processUserTurn(threadId: string, text: string) {
+  async processUserTurn(threadId: string, text: string, userId?: string) {
     if (!graphApp) {
       throw new Error(MESSAGES.AI.ORCHESTRATOR_NOT_READY);
     }
 
+    const tags = userId ? [userId, threadId] : [threadId];
+    const metadata = { threadId, userId };
+
     const result = (await invokeWithTimeout(
       graphApp.invoke(
         { messages: [{ role: "user", content: text }] },
-        { configurable: { thread_id: threadId } },
-      ),
-      45000,
+        { 
+          configurable: { thread_id: threadId },
+          tags,
+          metadata,
+        },
+      ),45000,
       "AI response timed out. Please try again.",
     )) as any;
 
@@ -41,10 +47,13 @@ export class OrchestrationService {
     };
   }
 
-  async startInterview(threadId: string, options: any) {
+  async startInterview(threadId: string, options: any, userId?: string) {
     if (!graphApp) {
       throw new Error(MESSAGES.AI.ORCHESTRATOR_NOT_READY);
     }
+
+    const tags = userId ? [userId, threadId] : [threadId];
+    const metadata = { threadId, userId };
 
     const result = (await invokeWithTimeout(
       graphApp.invoke(
@@ -52,9 +61,12 @@ export class OrchestrationService {
           messages: [{ role: "user", content: "Start the interview." }],
           ...options,
         },
-        { configurable: { thread_id: threadId } },
-      ),
-      45000,
+        { 
+          configurable: { thread_id: threadId },
+          tags,
+          metadata,
+        },
+      ),45000,
       "AI response timed out. Please try again.",
     )) as any;
 
