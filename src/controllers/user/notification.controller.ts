@@ -3,6 +3,26 @@ import { asyncHandler } from "../../lib/asyncHandler";
 import { Notification } from "../../models/notification.model";
 import { NotFoundError } from "../../lib/errors";
 import { notifyUser } from "../../lib/socket";
+import { sseManager } from "../../lib/sse";
+
+export const streamNotifications = asyncHandler(async (req: Request, res: Response) => {
+  const userId = (req as any).user.id;
+
+  // Set headers for Server-Sent Events (SSE)
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "Content-Encoding": "none",
+    "X-Accel-Buffering": "no", // Disable buffering in Nginx/Proxies
+  });
+
+  // Write a simple handshake message to confirm connection is active
+  res.write("data: {\"connected\":true}\n\n");
+
+  // Register the connection
+  sseManager.register(userId, res);
+});
 
 export const getNotifications = asyncHandler(async (req: Request, res: Response) => {
   const notifications = await Notification.find({ userId: (req as any).user.id })
@@ -68,3 +88,4 @@ export const clearNotifications = asyncHandler(async (req: Request, res: Respons
     message: "Notifications cleared"
   });
 });
+
