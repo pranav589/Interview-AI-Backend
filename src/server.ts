@@ -4,6 +4,7 @@ import http from "node:http";
 import app from "./app";
 import { WebSocketServer } from "ws";
 import { setupWebSocket } from "./lib/socket";
+import { sseManager } from "./lib/sse";
 import { setupGraph } from "./utils/graph";
 import { createModuleLogger } from "./lib/logger";
 import { seedFeatureFlags } from "./utils/seed-config";
@@ -51,6 +52,9 @@ async function handleShutdown(signal: string) {
       });
       wss.close();
     }
+
+    // Close all SSE streams
+    sseManager.closeAll();
 
     // 3. Disconnect from MongoDB
     await mongoose.disconnect();
