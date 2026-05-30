@@ -15,6 +15,7 @@ import {
   wsResumeStartSchema 
 } from "../validators/socket.validator";
 import { MESSAGES } from "../config/constants";
+import { sseManager } from "./sse";
 
 const logger = createModuleLogger("socket");
 
@@ -25,6 +26,14 @@ const userConnections = new Map<string, Set<WebSocket>>();
 
 export const setupWebSocket = (wss: WebSocketServer) => {
   wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
+    const url = new URL(req.url || "", `http://${req.headers.host}`);
+    const context = url.searchParams.get("context");
+    if (context === "global_notifications") {
+      logger.info("Global notification WebSocket rejected (redirected to SSE)");
+      ws.close(1008, "Use SSE notifications instead of WebSocket");
+      return;
+    }
+
     let userId: string | null = null;
     let threadId: string | null = null;
     let transcriber = new TranscriptionProvider();
@@ -264,6 +273,9 @@ function manageConcurrentSessions(threadId: string, ws: WebSocket) {
 }
 
 export function notifyUser(userId: string, payload: any) {
+  // Push real-time event to SSE streams
+  sseManager.sendToUser(userId, payload);
+
   const sockets = userConnections.get(userId);
   if (sockets) {
     const message = JSON.stringify(payload);

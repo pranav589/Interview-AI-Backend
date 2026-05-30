@@ -6,6 +6,7 @@ const router = Router();
 
 router.use(requireAuth);
 
+router.get("/stream", notificationController.streamNotifications);
 router.get("/", notificationController.getNotifications);
 router.patch("/read-all", notificationController.markAllAsRead);
 router.patch("/:id/read", notificationController.markAsRead);
