@@ -2,6 +2,7 @@ import { graphApp } from "../utils/graph";
 import { createModuleLogger } from "../lib/logger";
 import { stripMetadata, isLikelyMetaLeak } from "../helpers/message-utils";
 import { MESSAGES } from "../config/constants";
+import { HumanMessage } from "@langchain/core/messages";
 
 const logger = createModuleLogger("orchestration-service");
 
@@ -29,7 +30,7 @@ export class OrchestrationService {
 
     const result = (await invokeWithTimeout(
       graphApp.invoke(
-        { messages: [{ role: "user", content: text }] },
+        { messages: [new HumanMessage({ content: text, additional_kwargs: { timestamp: new Date().toISOString() } })] },
         { 
           configurable: { thread_id: threadId },
           tags,
@@ -58,7 +59,7 @@ export class OrchestrationService {
     const result = (await invokeWithTimeout(
       graphApp.invoke(
         {
-          messages: [{ role: "user", content: "Start the interview." }],
+          messages: [new HumanMessage({ content: "Start the interview.", additional_kwargs: { timestamp: new Date().toISOString() } })],
           ...options,
         },
         { 
@@ -88,7 +89,7 @@ export class OrchestrationService {
 
     if (!state?.values?.messages) return null;
 
-    const existingMessages = state.values.messages
+    const rawMessages = state.values.messages
       .filter((msg: any) => {
         const role = msg._getType();
         return (role === "ai" || role === "human") && msg.content;
@@ -100,6 +101,16 @@ export class OrchestrationService {
         ),
       }))
       .filter((m: any) => m.text && !isLikelyMetaLeak(m.text));
+
+    const existingMessages: any[] = [];
+    for (const msg of rawMessages) {
+      const last = existingMessages[existingMessages.length - 1];
+      if (last && last.role === msg.role && msg.role === "human") {
+        last.text = `${last.text} ${msg.text}`.trim();
+      } else {
+        existingMessages.push(msg);
+      }
+    }
 
     return {
       messages: existingMessages,

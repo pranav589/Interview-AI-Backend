@@ -92,14 +92,24 @@ export const getInterviewDetails = asyncHandler(
 
     const state = await graphApp.getState({ configurable: { thread_id: id } });
 
-    const transcriptions =
+    const rawTranscriptions =
       (state.values as any)?.messages
         ?.map((msg: any) => ({
           role: msg._getType(),
           text: stripMetadata(msg.content),
-          timestamp: msg.response_metadata?.timestamp || new Date(),
+          timestamp: msg.additional_kwargs?.timestamp || msg.response_metadata?.timestamp || new Date(),
         }))
         .filter((m: any) => m.text && !isLikelyMetaLeak(m.text)) || [];
+
+    const transcriptions: any[] = [];
+    for (const msg of rawTranscriptions) {
+      const last = transcriptions[transcriptions.length - 1];
+      if (last && last.role === msg.role && msg.role === 'human') {
+        last.text = `${last.text} ${msg.text}`.trim();
+      } else {
+        transcriptions.push(msg);
+      }
+    }
 
     const isCandidate = interview.userId.toString() === authUser!.id;
     let interviewObj = interview.toObject();

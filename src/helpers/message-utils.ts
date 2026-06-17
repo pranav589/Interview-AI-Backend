@@ -6,24 +6,42 @@ import { BaseMessage } from "@langchain/core/messages";
  * Used for token-efficient feedback generation.
  */
 export function extractQAPairs(messages: BaseMessage[]): { question: string; answer: string }[] {
+  // Pre-merge consecutive messages of the same type/role first
+  const mergedMessages: { role: string; content: string }[] = [];
+  for (const msg of messages) {
+    const role = msg._getType();
+    const rawContent = typeof msg.content === "string" ? msg.content : String(msg.content ?? "");
+    if (isLikelyMetaLeak(rawContent)) continue;
+    const content = stripMetadata(rawContent);
+    if (!content) continue;
+
+    const last = mergedMessages[mergedMessages.length - 1];
+    if (last && last.role === role) {
+      last.content = `${last.content} ${content}`.trim();
+    } else {
+      mergedMessages.push({
+        role,
+        content: content.trim(),
+      });
+    }
+  }
+
   const pairs: { question: string; answer: string }[] = [];
   let currentAIQuestion = "";
 
-  for (const msg of messages) {
-    const role = msg._getType();
-
-    if (role === "ai") {
+  for (const msg of mergedMessages) {
+    if (msg.role === "ai") {
       // Accumulate AI messages if consecutive
       if (currentAIQuestion) {
         currentAIQuestion += "\n" + msg.content;
       } else {
-        currentAIQuestion = msg.content as string;
+        currentAIQuestion = msg.content;
       }
-    } else if (role === "human" || role === "user") {
+    } else if (msg.role === "human" || msg.role === "user") {
       if (currentAIQuestion) {
         pairs.push({
           question: currentAIQuestion.trim(),
-          answer: (msg.content as string).trim() || "No verbal response detected",
+          answer: msg.content || "No verbal response detected",
         });
         currentAIQuestion = ""; // Reset for next pair
       }

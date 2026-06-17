@@ -49,3 +49,9 @@ export const wsCodeSchema = z.object({
 export const wsUserSpeakingSchema = z.object({
   type: z.literal("user_speaking"),
 });
+
+// Sent by the client when the user remains silent for more than 1000ms.
+// Backend uses this to reset its VAD speaking state tracker.
+export const wsUserSilentSchema = z.object({
+  type: z.literal("user_silent"),
+});

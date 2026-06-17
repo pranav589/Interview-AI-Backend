@@ -16,10 +16,13 @@ import {
   wsResumeStartSchema,
   wsCodeSchema,
   wsUserSpeakingSchema,
+  wsUserSilentSchema,
 } from "../validators/socket.validator";
 import { MESSAGES } from "../config/constants";
 import { sseManager } from "./sse";
 import { env } from "../config/env";
+import { graphApp } from "../utils/graph";
+import { AIMessage } from "@langchain/core/messages";
 
 const logger = createModuleLogger("socket");
 
@@ -28,7 +31,7 @@ const PARTIAL_TEXT_BACKPRESSURE_THRESHOLD_BYTES = 512 * 1024;
 // AssemblyAI handles silence detection via minTurnSilence (3500ms).
 // This only merges consecutive final turns emitted in quick succession by AssemblyAI.
 // Target: AAI 3.5s + socket 2s = ~5.5s post-last-word lag — natural conversational beat.
-const USER_SILENCE_WINDOW_MS = 2000;
+const USER_SILENCE_WINDOW_MS = 1500;
 // Max characters to accumulate before force-triggering AI turn
 const MAX_PENDING_CHARS = 2000;
 //  Heartbeat interval in ms
@@ -36,6 +39,52 @@ const HEARTBEAT_INTERVAL_MS = 30000;
 
 const activeConnections = new Map<string, WebSocket>();
 const userConnections = new Map<string, Set<WebSocket>>();
+
+interface SessionState {
+  isProcessingTurn: boolean;
+  isAISpeaking: boolean;
+  currentLLMTurnId: number;
+  aiSpeechTimer: NodeJS.Timeout | null;
+  pendingFinalTimer: NodeJS.Timeout | null;
+  pendingFinal: { turnOrder: number; text: string } | null;
+  processedTurns: Set<number>;
+  candidateSilenceTimer: NodeJS.Timeout | null;
+  silencePromptCount: number;
+  audioAccumulator: Buffer;
+  isProcessingCodeSubmission: boolean;
+  cleanupTimeout: NodeJS.Timeout | null;
+  lastUserSpeakingAt: number;
+}
+
+const sessionStates = new Map<string, SessionState>();
+
+const getOrCreateSessionState = (tid: string): SessionState => {
+  let state = sessionStates.get(tid);
+  if (!state) {
+    state = {
+      isProcessingTurn: false,
+      isAISpeaking: false,
+      currentLLMTurnId: 0,
+      aiSpeechTimer: null,
+      pendingFinalTimer: null,
+      pendingFinal: null,
+      processedTurns: new Set<number>(),
+      candidateSilenceTimer: null,
+      silencePromptCount: 0,
+      audioAccumulator: Buffer.alloc(0),
+      isProcessingCodeSubmission: false,
+      cleanupTimeout: null,
+      lastUserSpeakingAt: 0,
+    };
+    sessionStates.set(tid, state);
+  } else {
+    if (state.cleanupTimeout) {
+      clearTimeout(state.cleanupTimeout);
+      state.cleanupTimeout = null;
+    }
+  }
+  return state;
+};
 
 // Parse a WAV buffer and return the PCM payload by finding the 'data' sub-chunk.
 // Handles non-standard headers with variable-length metadata chunks (e.g. LIST chunks).
@@ -92,65 +141,92 @@ export const setupWebSocket = (wss: WebSocketServer) => {
       env.ASSEMBLYAI_MIN_TURN_SILENCE_MS,
       env.ASSEMBLYAI_MAX_TURN_SILENCE_MS
     );
-    
-    // Turn Management State
-    let isProcessingTurn = false;
-    let isAISpeaking = false;
-    let currentLLMTurnId = 0;
-    let aiSpeechTimer: NodeJS.Timeout | null = null;
-    let pendingFinalTimer: NodeJS.Timeout | null = null;
-    let pendingFinal: { turnOrder: number; text: string } | null = null;
-    let processedTurns = new Set<number>();
-
-    let candidateSilenceTimer: NodeJS.Timeout | null = null;
-    let silencePromptCount = 0;
-    let audioAccumulator = Buffer.alloc(0);
+       let sessionState: SessionState | null = null;
 
     const resetCandidateSilenceTimer = () => {
       clearCandidateSilenceTimer();
-      if (!isAISpeaking && !isProcessingTurn) {
-        candidateSilenceTimer = setTimeout(() => {
+      if (sessionState && !sessionState.isAISpeaking && !sessionState.isProcessingTurn) {
+        sessionState.candidateSilenceTimer = setTimeout(() => {
           handleCandidateSilence();
         }, env.CANDIDATE_MAX_SILENCE_MS);
       }
     };
 
     const clearCandidateSilenceTimer = () => {
-      if (candidateSilenceTimer) {
-        clearTimeout(candidateSilenceTimer);
-        candidateSilenceTimer = null;
+      if (sessionState && sessionState.candidateSilenceTimer) {
+        clearTimeout(sessionState.candidateSilenceTimer);
+        sessionState.candidateSilenceTimer = null;
       }
     };
 
     const handleCandidateSilence = async () => {
-      silencePromptCount++;
-      if (silencePromptCount === 1 || silencePromptCount === 2) {
+      if (!sessionState) return;
+      sessionState.silencePromptCount++;
+      if (sessionState.silencePromptCount === 1 || sessionState.silencePromptCount === 2) {
         logger.info(
-          { silencePromptCount },
+          { silencePromptCount: sessionState.silencePromptCount },
           "[SILENCE] Candidate silence limit reached. Asking if they are still there."
         );
-        isAISpeaking = true;
+        sessionState.isAISpeaking = true;
         safeSend({
           type: "text",
           content: "Are you still there?",
           isFinished: false,
         });
 
-        if (aiSpeechTimer) clearTimeout(aiSpeechTimer);
+        try {
+          if (graphApp && threadId) {
+            await graphApp.updateState(
+              { configurable: { thread_id: threadId } },
+              {
+                messages: [
+                  new AIMessage({
+                    content: "Are you still there?",
+                    additional_kwargs: { timestamp: new Date().toISOString() },
+                  }),
+                ],
+              }
+            );
+          }
+        } catch (err) {
+          logger.error({ err }, "Failed to save 'Are you still there?' to graph state");
+        }
+
+        if (sessionState.aiSpeechTimer) clearTimeout(sessionState.aiSpeechTimer);
         const fallbackDuration = Math.min(60000, Math.max(30000, "Are you still there?".length * 50 + 10000));
-        aiSpeechTimer = setTimeout(() => {
+        sessionState.aiSpeechTimer = setTimeout(() => {
           logger.warn("[GUARD] AI silence fallback timer fired");
-          isAISpeaking = false;
-          resetCandidateSilenceTimer();
+          if (sessionState) {
+            sessionState.isAISpeaking = false;
+            resetCandidateSilenceTimer();
+          }
         }, fallbackDuration);
-      } else if (silencePromptCount >= 3) {
+      } else if (sessionState.silencePromptCount >= 3) {
         logger.info("[SILENCE] Third silence limit reached. Auto-ending interview.");
-        isAISpeaking = true;
+        sessionState.isAISpeaking = true;
         safeSend({
           type: "text",
           content: "I haven't heard a response, so I will end the interview now. Thank you for your time.",
           isFinished: true,
         });
+
+        try {
+          if (graphApp && threadId) {
+            await graphApp.updateState(
+              { configurable: { thread_id: threadId } },
+              {
+                messages: [
+                  new AIMessage({
+                    content: "I haven't heard a response, so I will end the interview now. Thank you for your time.",
+                    additional_kwargs: { timestamp: new Date().toISOString() },
+                  }),
+                ],
+              }
+            );
+          }
+        } catch (err) {
+          logger.error({ err }, "Failed to save auto-end message to graph state");
+        }
         await transcriber.close();
       }
     };
@@ -181,20 +257,21 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     };
 
     const handleAITurn = async (text: string, turnOrder: number) => {
-      if (processedTurns.has(turnOrder)) return;
-      processedTurns.add(turnOrder);
+      if (!sessionState) return;
+      if (sessionState.processedTurns.has(turnOrder)) return;
+      sessionState.processedTurns.add(turnOrder);
 
-      currentLLMTurnId++;
-      const myTurnId = currentLLMTurnId;
+      sessionState.currentLLMTurnId++;
+      const myTurnId = sessionState.currentLLMTurnId;
       clearCandidateSilenceTimer();
-      audioAccumulator = Buffer.alloc(0);
+      sessionState.audioAccumulator = Buffer.alloc(0);
 
       try {
-        isProcessingTurn = true;
+        sessionState.isProcessingTurn = true;
         safeSend({ type: "thinking" });
         const response = await orchestrationService.processUserTurn(threadId!, text);
         
-        if (myTurnId !== currentLLMTurnId) {
+        if (myTurnId !== sessionState.currentLLMTurnId) {
           logger.info({ turnOrder }, "[GUARD] AI turn cancelled during LLM processing, discarding response");
           return;
         }
@@ -221,41 +298,53 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           // the authoritative signal. Formula: ~30ms/char (actual TTS playback speed at ~150wpm)
           // + 3000ms fixed overhead (TTS fetch + buffering). Max 45s, min 10s.
           // Previous formula used 80ms/char which caused 37s blocks on a 400-char response.
-          isAISpeaking = true;
-          if (aiSpeechTimer) clearTimeout(aiSpeechTimer);
+          sessionState.isAISpeaking = true;
+          if (sessionState.aiSpeechTimer) clearTimeout(sessionState.aiSpeechTimer);
           const fallbackDuration = Math.min(60000, Math.max(30000, response.aiText.length * 50 + 10000));
-          aiSpeechTimer = setTimeout(() => {
+          sessionState.aiSpeechTimer = setTimeout(() => {
             logger.warn("[GUARD] AI speech fallback timer fired — client may not have sent speech_finished");
-            isAISpeaking = false;
-            resetCandidateSilenceTimer();
+            if (sessionState) {
+              sessionState.isAISpeaking = false;
+              resetCandidateSilenceTimer();
+            }
           }, fallbackDuration);
 
           if (response.isFinished) await transcriber.close();
         }
       } catch (err: any) {
         logger.error({ err }, "[GRAPH] Error");
-        isAISpeaking = false;
-        if (aiSpeechTimer) { clearTimeout(aiSpeechTimer); aiSpeechTimer = null; }
+        if (sessionState) {
+          sessionState.isAISpeaking = false;
+          if (sessionState.aiSpeechTimer) { clearTimeout(sessionState.aiSpeechTimer); sessionState.aiSpeechTimer = null; }
+        }
         safeSend({ type: "error", message: err.message || "AI failed" });
         resetCandidateSilenceTimer();
       } finally {
-        isProcessingTurn = false;
+        if (sessionState) {
+          sessionState.isProcessingTurn = false;
+          sessionState.isProcessingCodeSubmission = false;
+        }
       }
     };
 
     const transcriberCallbacks = {
       onTurn: (turn: any) => {
-        if (isAISpeaking) return;
+        if (!sessionState) return;
+        if (sessionState.isAISpeaking) return;
 
-        if (isProcessingTurn) {
-          logger.info("[GUARD] User started speaking during AI thinking phase. Cancelling AI turn.");
-          currentLLMTurnId++;
-          isProcessingTurn = false;
-          safeSend({ type: "interrupted" });
+        if (sessionState.isProcessingTurn) {
+          if (sessionState.isProcessingCodeSubmission) {
+            logger.info("[GUARD] User voice detected during code evaluation thinking phase. Ignoring VAD interrupt to preserve code submission.");
+          } else {
+            logger.info("[GUARD] User started speaking during AI thinking phase. Cancelling AI turn.");
+            sessionState.currentLLMTurnId++;
+            sessionState.isProcessingTurn = false;
+            safeSend({ type: "interrupted" });
+          }
         }
 
         if (!turn.transcript) return;
-        silencePromptCount = 0;
+        sessionState.silencePromptCount = 0;
         resetCandidateSilenceTimer();
 
         if (!turn.end_of_turn) {
@@ -264,28 +353,37 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           logger.info({ turnOrder: turn.turn_order, transcript: turn.transcript.slice(0, 80) }, "[AAI] Final Turn");
           safeSend({ type: "user_text", content: turn.transcript });
           
-          if (pendingFinal) {
-            const combined = `${pendingFinal.text} ${turn.transcript}`.trim();
-            pendingFinal.text = combined;
+          if (sessionState.pendingFinal) {
+            const combined = `${sessionState.pendingFinal.text} ${turn.transcript}`.trim();
+            sessionState.pendingFinal.text = combined;
           } else {
-            pendingFinal = { turnOrder: turn.turn_order, text: turn.transcript };
+            sessionState.pendingFinal = { turnOrder: turn.turn_order, text: turn.transcript };
           }
 
           // If text has grown beyond threshold, fire immediately
-          if (pendingFinal && pendingFinal.text.length >= MAX_PENDING_CHARS) {
-            if (pendingFinalTimer) clearTimeout(pendingFinalTimer);
-            logger.info({ chars: pendingFinal.text.length }, "[GUARD] Pending text exceeded cap, firing immediately");
-            const captured = pendingFinal;
-            pendingFinal = null;
+          if (sessionState.pendingFinal && sessionState.pendingFinal.text.length >= MAX_PENDING_CHARS) {
+            if (sessionState.pendingFinalTimer) clearTimeout(sessionState.pendingFinalTimer);
+            logger.info({ chars: sessionState.pendingFinal.text.length }, "[GUARD] Pending text exceeded cap, firing immediately");
+            const captured = sessionState.pendingFinal;
+            sessionState.pendingFinal = null;
             handleAITurn(captured.text, captured.turnOrder);
             return;
           }
 
-          if (pendingFinalTimer) clearTimeout(pendingFinalTimer);
+          if (sessionState.pendingFinalTimer) clearTimeout(sessionState.pendingFinalTimer);
           
-          pendingFinalTimer = setTimeout(() => {
-            if (pendingFinal) handleAITurn(pendingFinal.text, pendingFinal.turnOrder);
-            pendingFinal = null;
+          const timeSinceSpeechDetected = Date.now() - sessionState.lastUserSpeakingAt;
+          if (sessionState.lastUserSpeakingAt > 0 && timeSinceSpeechDetected < 1200) {
+            logger.info(
+              { timeSinceSpeechDetected, text: turn.transcript },
+              "[GUARD] User resumed speaking, suppressing AI turn timer trigger"
+            );
+            return;
+          }
+
+          sessionState.pendingFinalTimer = setTimeout(() => {
+            if (sessionState && sessionState.pendingFinal) handleAITurn(sessionState.pendingFinal.text, sessionState.pendingFinal.turnOrder);
+            if (sessionState) sessionState.pendingFinal = null;
           }, USER_SILENCE_WINDOW_MS);
         }
       },
@@ -304,6 +402,8 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             
             threadId = result.data.threadId;
             if (!await checkOwnership(threadId, userId!)) return ws.close(4003);
+
+            sessionState = getOrCreateSessionState(threadId);
 
             manageConcurrentSessions(threadId, ws);
             
@@ -327,6 +427,11 @@ export const setupWebSocket = (wss: WebSocketServer) => {
                   aiInterviewerName = employer.aiInterviewerName || "AI Assistant";
                 }
               }
+            } else if (interview) {
+              const creator = await User.findById(interview.userId);
+              if (creator) {
+                aiInterviewerName = creator.aiInterviewerName || "AI Assistant";
+              }
             }
 
             await Interview.findByIdAndUpdate(threadId, { status: "in-progress" });
@@ -339,16 +444,15 @@ export const setupWebSocket = (wss: WebSocketServer) => {
               isB2B,
             });
             
-            // Set isAISpeaking = true when the first question is sent to the client.
-            // This prevents any early audio chunks (from network transit or client reconnect/cache)
-            // from triggering a double reply.
-            isAISpeaking = true;
-            if (aiSpeechTimer) clearTimeout(aiSpeechTimer);
+            sessionState.isAISpeaking = true;
+            if (sessionState.aiSpeechTimer) clearTimeout(sessionState.aiSpeechTimer);
             const fallbackDuration = Math.min(60000, Math.max(30000, startResponse.aiText.length * 50 + 10000));
-            aiSpeechTimer = setTimeout(() => {
+            sessionState.aiSpeechTimer = setTimeout(() => {
               logger.warn("[GUARD] Start AI speech fallback timer fired — client may not have sent speech_finished");
-              isAISpeaking = false;
-              resetCandidateSilenceTimer();
+              if (sessionState) {
+                sessionState.isAISpeaking = false;
+                resetCandidateSilenceTimer();
+              }
             }, fallbackDuration);
 
 
@@ -367,7 +471,8 @@ export const setupWebSocket = (wss: WebSocketServer) => {
 
           case "audio": {
             const result = wsAudioSchema.safeParse(raw);
-            if (!result.success || isProcessingTurn || isAISpeaking) return;
+            if (!sessionState) return;
+            if (!result.success || sessionState.isProcessingTurn || sessionState.isAISpeaking) return;
             
             if (!transcriber.isSessionActive) await transcriber.connect(transcriberCallbacks);
             
@@ -375,11 +480,11 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             const rawChunk = Buffer.from(result.data.chunk, "base64") as Buffer;
             const chunk = stripWavHeader(rawChunk);
             
-            audioAccumulator = Buffer.concat([audioAccumulator, chunk]);
+            sessionState.audioAccumulator = Buffer.concat([sessionState.audioAccumulator, chunk]);
             const TARGET_CHUNK_SIZE = 3200; // 100ms at 16kHz mono 16-bit PCM
-            while (audioAccumulator.length >= TARGET_CHUNK_SIZE) {
-              const chunkToSend = audioAccumulator.subarray(0, TARGET_CHUNK_SIZE);
-              audioAccumulator = audioAccumulator.subarray(TARGET_CHUNK_SIZE);
+            while (sessionState.audioAccumulator.length >= TARGET_CHUNK_SIZE) {
+              const chunkToSend = sessionState.audioAccumulator.subarray(0, TARGET_CHUNK_SIZE);
+              sessionState.audioAccumulator = sessionState.audioAccumulator.subarray(TARGET_CHUNK_SIZE);
               transcriber.sendAudio(chunkToSend);
             }
             break;
@@ -389,7 +494,7 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             const result = wsPauseSchema.safeParse(raw);
             if (!result.success) return;
             clearCandidateSilenceTimer();
-            audioAccumulator = Buffer.alloc(0);
+            if (sessionState) sessionState.audioAccumulator = Buffer.alloc(0);
             await transcriber.close();
             await Interview.findByIdAndUpdate(threadId, { 
               status: "paused", 
@@ -409,6 +514,8 @@ export const setupWebSocket = (wss: WebSocketServer) => {
               manageConcurrentSessions(threadId, ws);
             }
 
+            sessionState = getOrCreateSessionState(threadId);
+
             await Interview.findByIdAndUpdate(threadId, { status: "in-progress" });
             const history = await orchestrationService.getConversationHistory(threadId);
             if (history) safeSend({ type: "history", ...history });
@@ -423,10 +530,12 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           // This is the authoritative signal; the heuristic timer above is only a fallback.
           case "speech_finished": {
             logger.info("[GUARD] Client confirmed AI speech finished");
-            isAISpeaking = false;
-            if (aiSpeechTimer) {
-              clearTimeout(aiSpeechTimer);
-              aiSpeechTimer = null;
+            if (sessionState) {
+              sessionState.isAISpeaking = false;
+              if (sessionState.aiSpeechTimer) {
+                clearTimeout(sessionState.aiSpeechTimer);
+                sessionState.aiSpeechTimer = null;
+              }
             }
             resetCandidateSilenceTimer();
             break;
@@ -435,21 +544,37 @@ export const setupWebSocket = (wss: WebSocketServer) => {
           case "user_speaking": {
             // User has resumed speaking after a silence gap.
             // Cancel any pending AI turn so we don't interrupt the candidate mid-thought.
-            if (pendingFinalTimer) {
-              clearTimeout(pendingFinalTimer);
-              pendingFinalTimer = null;
-              logger.info(
-                { accumulatedText: pendingFinal ? pendingFinal.text.slice(0, 60) : "" },
-                "[GUARD] user_speaking received — paused pending AI turn, preserving text"
-              );
+            if (sessionState) {
+              sessionState.lastUserSpeakingAt = Date.now();
+              if (sessionState.pendingFinalTimer) {
+                clearTimeout(sessionState.pendingFinalTimer);
+                sessionState.pendingFinalTimer = null;
+                logger.info(
+                  { accumulatedText: sessionState.pendingFinal ? sessionState.pendingFinal.text.slice(0, 60) : "" },
+                  "[GUARD] user_speaking received — paused pending AI turn, preserving text"
+                );
+              }
+              sessionState.silencePromptCount = 0;
             }
-            silencePromptCount = 0;
             resetCandidateSilenceTimer();
-            if (isProcessingTurn) {
-              logger.info("[GUARD] user_speaking received during AI thinking phase. Cancelling AI turn.");
-              currentLLMTurnId++;
-              isProcessingTurn = false;
-              safeSend({ type: "interrupted" });
+            if (sessionState && sessionState.isProcessingTurn) {
+              if (sessionState.isProcessingCodeSubmission) {
+                logger.info("[GUARD] user_speaking received during code evaluation thinking phase. Ignoring VAD interrupt to preserve code submission.");
+              } else {
+                logger.info("[GUARD] user_speaking received during AI thinking phase. Cancelling AI turn.");
+                sessionState.currentLLMTurnId++;
+                sessionState.isProcessingTurn = false;
+                safeSend({ type: "interrupted" });
+              }
+            }
+            break;
+          }
+
+          case "user_silent": {
+            const result = wsUserSilentSchema.safeParse(raw);
+            if (!result.success) return;
+            if (sessionState) {
+              sessionState.lastUserSpeakingAt = 0;
             }
             break;
           }
@@ -458,7 +583,7 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             const result = wsCodeSchema.safeParse(raw);
             if (!result.success) return safeSend({ type: "error", message: MESSAGES.SOCKET.INVALID_PAYLOAD });
 
-            if (!threadId) {
+            if (!threadId || !sessionState) {
               return safeSend({ type: "error", message: "No active interview session found" });
             }
 
@@ -466,6 +591,8 @@ export const setupWebSocket = (wss: WebSocketServer) => {
             
             const prompt = `Here is my code submission in ${result.data.language || "javascript"}:\n\n\`\`\`${result.data.language || "javascript"}\n${result.data.content}\n\`\`\``;
             
+            sessionState.isProcessingCodeSubmission = true;
+
             // Trigger AI evaluation turn
             handleAITurn(prompt, Date.now());
             break;
@@ -477,17 +604,33 @@ export const setupWebSocket = (wss: WebSocketServer) => {
     });
 
     ws.on("close", () => {
-      if (threadId) activeConnections.delete(threadId);
+      if (threadId) {
+        activeConnections.delete(threadId);
+        
+        // Clean up session state or schedule for deletion
+        const state = sessionStates.get(threadId);
+        if (state) {
+          if (state.aiSpeechTimer) clearTimeout(state.aiSpeechTimer);
+          if (state.pendingFinalTimer) clearTimeout(state.pendingFinalTimer);
+          if (state.candidateSilenceTimer) clearTimeout(state.candidateSilenceTimer);
+          
+          state.aiSpeechTimer = null;
+          state.pendingFinalTimer = null;
+          state.candidateSilenceTimer = null;
+          
+          // Schedule full state deletion after 5 minutes of inactivity (reconnect window)
+          state.cleanupTimeout = setTimeout(() => {
+            sessionStates.delete(threadId!);
+            logger.info({ threadId }, "Cleaned up persistent session state due to inactivity");
+          }, 5 * 60 * 1000);
+        }
+      }
       if (userId && userConnections.has(userId)) {
         userConnections.get(userId)!.delete(ws);
         if (userConnections.get(userId)!.size === 0) {
           userConnections.delete(userId);
         }
       }
-      if (aiSpeechTimer) clearTimeout(aiSpeechTimer);
-      if (pendingFinalTimer) clearTimeout(pendingFinalTimer);
-      clearCandidateSilenceTimer();
-      audioAccumulator = Buffer.alloc(0);
       transcriber.close();
     });
   });

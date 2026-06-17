@@ -31,6 +31,8 @@ export class InterviewService {
     const query: any = {};
     if (role === "employer") {
       query.employerId = userId;
+    } else if (role === "admin") {
+      query.$or = [{ userId }, { employerId: userId }];
     } else {
       query.userId = userId;
     }

@@ -27,30 +27,12 @@ export class FeedbackService {
     }
 
     // --- Q&A Extraction ---
-    // Primary: use askedQuestions[] from graph state — the authoritative list of actual questions.
-    // Fallback: old extractQAPairs for pre-existing interviews that pre-date askedQuestions tracking.
-    const askedQuestions: string[] = state.values.askedQuestions ?? [];
-    let qaPairs: { question: string; answer: string }[];
-
-    if (askedQuestions.length > 0) {
-      logger.info(
-        { count: askedQuestions.length, questions: askedQuestions },
-        "[FB] Using askedQuestions from graph state for Q&A extraction"
-      );
-      qaPairs = extractActualQAPairs(state.values.messages, askedQuestions);
-    } else {
-      // Legacy fallback: cap to numberOfQuestions to prevent inflated breakdowns
-      logger.warn(
-        { threadId },
-        "[FB] askedQuestions[] is empty — falling back to extractQAPairs (legacy interview). Will cap to numberOfQuestions."
-      );
-      const rawPairs = extractQAPairs(state.values.messages);
-      // Skip the first pair (greeting exchange) and cap to target question count
-      const stripped = rawPairs.filter(
-        (p) => p.question.includes("?") || p.question.toLowerCase().includes("tell me") || p.question.toLowerCase().includes("describe")
-      );
-      qaPairs = stripped.slice(0, interview.numberOfQuestions);
-    }
+    // Extract Q&A pairs directly from the actual messages exchanged (one per AI-Human turn pair)
+    logger.info(
+      { threadId },
+      "[FB] Extracting Q&A pairs directly from message turns"
+    );
+    const qaPairs = extractQAPairs(state.values.messages);
 
     logger.info(
       { pairsCount: qaPairs.length, targetCount: interview.numberOfQuestions },

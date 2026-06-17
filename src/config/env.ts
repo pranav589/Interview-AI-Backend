@@ -17,12 +17,12 @@ const envSchema = z.object({
   ASSEMBLYAI_MIN_TURN_SILENCE_MS: z
     .string()
     .optional()
-    .default("3000")
+    .default("1500")
     .transform((val) => parseInt(val, 10)),
   ASSEMBLYAI_MAX_TURN_SILENCE_MS: z
     .string()
     .optional()
-    .default("5000")
+    .default("3000")
     .transform((val) => parseInt(val, 10)),
   CANDIDATE_MAX_SILENCE_MS: z
     .string()
