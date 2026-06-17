@@ -16,10 +16,8 @@ import {
 import { AuthenticatedRequest } from "../../types/express";
 import { resumeFileParserService } from "../../services/resume-file-parser.service";
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 import { env } from "../../config/env";
-import { uploadInterviewVideo } from "../../providers/cloudinary.provider";
+import { uploadInterviewVideo, uploadInterviewSnapshot } from "../../providers/cloudinary.provider";
 
 const getCookieOptions = (req: Request, maxAge: number) => {
   const isProd = env.NODE_ENV === "production";
@@ -295,25 +293,26 @@ export const uploadSnapshot = asyncHandler(
       throw new NotFoundError("Interview not found");
     }
 
-    // Save base64 image to filesystem
+    // Process base64 image data
     const base64Data = image.replace(/^data:image\/\w+;base64,/, "");
     const buffer = Buffer.from(base64Data, "base64");
 
-    const uploadDir = path.join(__dirname, "../../../../uploads/snapshots", id);
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-
     const timestamp = Date.now();
     const filename = `${timestamp}-${trigger || "snapshot"}.jpg`;
-    const filePath = path.join(uploadDir, filename);
 
-    fs.writeFileSync(filePath, buffer);
+    // Upload directly to Cloudinary
+    let cloudinaryUrl: string | undefined;
+    try {
+      cloudinaryUrl = await uploadInterviewSnapshot(buffer, filename);
+    } catch (err: any) {
+      console.warn("Failed to upload snapshot to Cloudinary silently:", err);
+    }
 
     // Append to snapshots array in DB
     interview.snapshots.push({
       timestamp: new Date(timestamp),
       filename,
+      cloudinaryUrl,
       trigger: trigger || "random",
     });
 
@@ -325,6 +324,7 @@ export const uploadSnapshot = asyncHandler(
       data: {
         filename,
         timestamp,
+        cloudinaryUrl,
       },
     });
   },
@@ -379,17 +379,27 @@ export const streamSnapshot = asyncHandler(
       throw new ForbiddenError("Unauthorized to view this snapshot");
     }
 
-    const filePath = path.join(
-      __dirname,
-      "../../../../uploads/snapshots",
-      id,
-      filename,
-    );
-    if (!fs.existsSync(filePath)) {
-      throw new NotFoundError("Snapshot file not found");
+    // Find snapshot in DB
+    const snapshotObj = interview.snapshots.find((s) => s.filename === filename);
+    if (!snapshotObj || !snapshotObj.cloudinaryUrl) {
+      throw new NotFoundError("Snapshot not found or not stored in cloud storage");
     }
 
-    res.sendFile(filePath);
+    // Fetch and stream from Cloudinary
+    try {
+      const response = await fetch(snapshotObj.cloudinaryUrl);
+      if (!response.ok) {
+        throw new Error(`Cloudinary responded with status ${response.status}`);
+      }
+      res.setHeader("Content-Type", response.headers.get("content-type") || "image/jpeg");
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      res.send(buffer);
+      return;
+    } catch (err: any) {
+      console.error("Failed to stream snapshot from Cloudinary:", err);
+      throw new NotFoundError("Snapshot could not be loaded from storage");
+    }
   },
 );
 

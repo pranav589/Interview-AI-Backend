@@ -80,6 +80,7 @@ const interviewSchema = new Schema(
       {
         timestamp: { type: Date, default: Date.now },
         filename: { type: String, required: true },
+        cloudinaryUrl: { type: String, required: false },
         trigger: {
           type: String,
           enum: ["random", "tab-switch", "start", "finish"],

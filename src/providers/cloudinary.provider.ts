@@ -46,3 +46,33 @@ export const uploadInterviewVideo = (fileBuffer: Buffer, filename: string): Prom
     uploadStream.end(fileBuffer);
   });
 };
+
+export const uploadInterviewSnapshot = (fileBuffer: Buffer, filename: string): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (!hasCredentials) {
+      return reject(new Error("Cloudinary credentials are not configured."));
+    }
+
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        resource_type: "image",
+        public_id: filename.replace(/\.[^/.]+$/, ""), // strip extension
+        folder: "snapshots",
+      },
+      (error, result) => {
+        if (error) {
+          logger.error(error, "Cloudinary upload failed");
+          return reject(error);
+        }
+        if (!result) {
+          return reject(new Error("No result returned from Cloudinary upload"));
+        }
+        logger.info(`Snapshot uploaded to Cloudinary: ${result.secure_url}`);
+        resolve(result.secure_url);
+      }
+    );
+
+    uploadStream.end(fileBuffer);
+  });
+};
+
