@@ -15,9 +15,11 @@ export class TranscriptionProvider {
   private isReady = false;
   private isConnecting = false;
   private minTurnSilence: number;
+  private maxTurnSilence: number;
 
-  constructor(minTurnSilence: number = 8000) {
+  constructor(minTurnSilence: number = 2000, maxTurnSilence: number = 4000) {
     this.minTurnSilence = minTurnSilence;
+    this.maxTurnSilence = maxTurnSilence;
   }
 
   async connect(callbacks: TranscriptionCallbacks) {
@@ -30,6 +32,7 @@ export class TranscriptionProvider {
         formatTurns: true,
         speechModel: "universal-streaming-english",
         minTurnSilence: this.minTurnSilence,
+        maxTurnSilence: this.maxTurnSilence,
       });
 
       this.rt.on("turn", callbacks.onTurn);

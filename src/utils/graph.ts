@@ -49,6 +49,9 @@ const InterviewState = new StateSchema({
   customTopics: z.string().default(""),
   jobDescription: z.string().default(""),
   companyStyle: z.string().default(""),
+  questionBankText: z.string().optional().default(""),
+  aiInterviewerName: z.string().optional().default(""),
+  isB2B: z.boolean().default(false),
   
   // Progress Tracking
   questionCount: z.number().default(0), // Managed by counter node now
@@ -265,7 +268,7 @@ Rules:
     TechnicalMetaSchema,
     [
       new SystemMessage(metaPrompt),
-      ...trimmedMessages,
+      ...trimmedMessages.slice(-4),
       new HumanMessage(`Assistant response to classify:\n\n${assistantText}`),
     ],
     { timeout: 15000 },

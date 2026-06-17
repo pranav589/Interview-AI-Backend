@@ -14,6 +14,21 @@ const envSchema = z.object({
   OPENROUTER_API_KEY: z.string().min(1),
   NVIDIA_API_KEY: z.string().optional(),
   ASSEMBLYAI_API_KEY: z.string().min(1),
+  ASSEMBLYAI_MIN_TURN_SILENCE_MS: z
+    .string()
+    .optional()
+    .default("3000")
+    .transform((val) => parseInt(val, 10)),
+  ASSEMBLYAI_MAX_TURN_SILENCE_MS: z
+    .string()
+    .optional()
+    .default("5000")
+    .transform((val) => parseInt(val, 10)),
+  CANDIDATE_MAX_SILENCE_MS: z
+    .string()
+    .optional()
+    .default("5000")
+    .transform((val) => parseInt(val, 10)),
   EMAIL_USER: z.string().min(1),
   EMAIL_PASS: z.string().min(1),
   FRONTEND_URL: z.string().url(),
@@ -40,6 +55,7 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URL: z.string().optional(),
   GOOGLE_API_KEY: z.string().optional(), // Fallback LLM (Gemini)
   GROQ_API_KEY: z.string().optional(), // Fallback LLM (Groq)
+  DEEPGRAM_API_KEY: z.string().optional(),
 
   TAVILY_API_KEY: z.string().optional(), // Web search tool
   COOKIE_DOMAIN: z.string().optional(), // Shared root domain (e.g. .interviewai.net.in)
@@ -49,6 +65,12 @@ const envSchema = z.object({
   LANGSMITH_TRACING: z.string().optional(),
   LANGSMITH_API_KEY: z.string().optional(),
   LANGSMITH_PROJECT: z.string().optional(),
+  MISTRAL_API_KEY: z.string().optional(),
+
+  // Cloudinary
+  CLOUDINARY_CLOUD_NAME: z.string().optional(),
+  CLOUDINARY_API_KEY: z.string().optional(),
+  CLOUDINARY_API_SECRET: z.string().optional(),
 });
 
 const _env = envSchema.safeParse(process.env);

@@ -35,7 +35,7 @@ export class OrchestrationService {
           tags,
           metadata,
         },
-      ),45000,
+      ),90000,
       "AI response timed out. Please try again.",
     )) as any;
 
@@ -66,7 +66,7 @@ export class OrchestrationService {
           tags,
           metadata,
         },
-      ),45000,
+      ),90000,
       "AI response timed out. Please try again.",
     )) as any;
 

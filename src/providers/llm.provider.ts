@@ -23,9 +23,9 @@ export function createLLM(options: LLMOptions = {}) {
   } = options;
 
   return new ChatOpenAI({
-    model: "openrouter/free",
-    apiKey: env.OPENROUTER_API_KEY,
-    configuration: { baseURL: "https://openrouter.ai/api/v1" },
+    model: "mistral-small-latest",
+    apiKey: env.MISTRAL_API_KEY,
+    configuration: { baseURL: "https://api.mistral.ai/v1" },
     timeout,
     maxRetries,
     maxTokens,
