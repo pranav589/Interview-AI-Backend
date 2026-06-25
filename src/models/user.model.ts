@@ -16,7 +16,7 @@ const userSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "admin", "employer", "candidate"],
       default: "user",
     },
     isEmailVerified: {
@@ -70,6 +70,19 @@ const userSchema = new Schema(
     onboardingCompleted: {
       type: Boolean,
       default: false,
+    },
+    companyName: {
+      type: String,
+      default: "",
+    },
+    companyWebsite: {
+      type: String,
+      default: "",
+    },
+    aiInterviewerName: {
+      type: String,
+      default: "AI Assistant",
+      trim: true,
     },
   },
   {

@@ -7,9 +7,11 @@ import configRouter from "./routes/config.routes";
 import authRouter from "./routes/auth.routes";
 import userRouter from "./routes/user.routes";
 import adminRouter from "./routes/admin.routes";
+import inviteRouter from "./routes/invite.routes";
 import interviewRouter from "./routes/interview.routes";
 import resumeRouter from "./routes/resume.routes";
 import notificationRouter from "./routes/notification.routes";
+import jobRouter from "./routes/job.routes";
 import requireAuth from "./middleware/requireAuth";
 import cors from "cors";
 
@@ -81,6 +83,8 @@ app.use("/api/v1/user", requireAuth, userRouter);
 app.use("/api/v1/resume", requireAuth, resumeRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/interview", requireAuth, interviewRouter);
+app.use("/api/v1/jobs", jobRouter);
+app.use("/api/v1/invites", inviteRouter);
 app.use("/api/v1/notifications", requireAuth, notificationRouter);
 
 app.use(errorHandler);

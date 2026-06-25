@@ -143,4 +143,6 @@ export const CREDITS = {
   IS_FREE_TRIAL: true, 
 } as const;
 
+export const REQUIRE_EMAIL_VERIFICATION = false; // Set to true to make email verification mandatory for login
+
 export type SubscriptionTier = typeof SUBSCRIPTION_TIERS[keyof typeof SUBSCRIPTION_TIERS];

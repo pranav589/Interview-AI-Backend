@@ -2,7 +2,11 @@ import { z } from "zod";
 import { MESSAGES } from "../config/constants";
 
 export const updateSettingsSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters").optional(),
   weeklyEmailDigest: z.boolean().optional(),
+  companyName: z.string().optional(),
+  companyWebsite: z.string().optional(),
+  aiInterviewerName: z.string().optional(),
 });
 
 export const resumeUploadSchema = z.object({

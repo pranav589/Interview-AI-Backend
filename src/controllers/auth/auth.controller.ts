@@ -35,7 +35,8 @@ export const registerHandler = asyncHandler(async (req: Request, res: Response) 
     result.data.name, 
     result.data.email, 
     result.data.password, 
-    env.FRONTEND_URL
+    env.FRONTEND_URL,
+    result.data.role
   );
 
   return res.status(201).json({
@@ -134,14 +135,28 @@ export const resetPasswordHandler = asyncHandler(async (req: Request, res: Respo
 });
 
 export const googleAuthStartHandler = (req: Request, res: Response) => {
-  return res.redirect(authService.getGoogleAuthUrl());
+  const role = req.query.role as string;
+  return res.redirect(authService.getGoogleAuthUrl(role));
 };
 
 export const googleAuthCallbackHandler = asyncHandler(async (req: Request, res: Response) => {
   const code = req.query.code as string;
   if (!code) throw new ValidationError(MESSAGES.AUTH.GOOGLE_AUTH_MISSING_CODE);
 
-  const { user, accessToken, refreshToken } = await authService.handleGoogleCallback(code);
+  const stateStr = req.query.state as string;
+  let role = "user";
+  if (stateStr) {
+    try {
+      const state = JSON.parse(stateStr);
+      if (state && state.role) {
+        role = state.role;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  const { user, accessToken, refreshToken } = await authService.handleGoogleCallback(code, role);
   setAuthCookies(res, req, accessToken, refreshToken);
 
   return res.redirect(`${env.FRONTEND_URL}/auth/callback?user=${encodeURIComponent(JSON.stringify(sanitizeUser(user)))}`);
@@ -191,6 +206,8 @@ function sanitizeUser(user: any) {
     subscriptionTier: user.subscriptionTier,
     credits: user.credits,
     onboardingCompleted: user.onboardingCompleted,
+    companyName: user.companyName,
+    companyWebsite: user.companyWebsite,
   };
 }
 

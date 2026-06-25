@@ -93,10 +93,7 @@ export const updateSettings = asyncHandler(async (req: Request, res: Response) =
   return res.json({
     success: true,
     message: MESSAGES.USER.SETTINGS_UPDATE_SUCCESS,
-    data: {
-      id: updatedUser.id,
-      weeklyEmailDigest: updatedUser.weeklyEmailDigest,
-    }
+    data: sanitizeUser(updatedUser),
   });
 });
 
@@ -125,5 +122,8 @@ function sanitizeUser(user: any) {
     lastCreditReset: user.lastCreditReset,
     weeklyEmailDigest: user.weeklyEmailDigest,
     onboardingCompleted: user.onboardingCompleted,
+    companyName: user.companyName,
+    companyWebsite: user.companyWebsite,
+    aiInterviewerName: user.aiInterviewerName,
   };
 }

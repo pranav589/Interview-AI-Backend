@@ -13,11 +13,19 @@ interface PromptContext {
   companyQuestionContext?: string;
   codingModeEnabled?: boolean;
   isCodingMode?: boolean;
+  questionBankText?: string;
+  aiInterviewerName?: string;
+  isB2B?: boolean;
 }
 
 function getBaseContext(ctx: PromptContext, type: string) {
+  const identity = ctx.aiInterviewerName 
+    ? `Your name is ${ctx.aiInterviewerName}. You must identify and introduce yourself as ${ctx.aiInterviewerName}.` 
+    : "You are a professional interviewer.";
+
   return `
-You are a professional interviewer conducting a ${ctx.difficultyLevel}-level ${type} interview.
+${identity}
+Conducting a ${ctx.difficultyLevel}-level ${type} interview.
 Current Progress: Question ${ctx.questionCount} of ${ctx.maxQuestions}.
 ${ctx.jobTitle ? `Target Role: ${ctx.jobTitle}` : ""}
 ${ctx.company ? `Company: ${ctx.company}` : ""}
@@ -25,6 +33,18 @@ ${ctx.companyStyle ? `Interview Style: ${ctx.companyStyle}` : ""}
 ${ctx.customTopics ? `Custom Topics to Cover: ${ctx.customTopics}` : ""}
 ${ctx.jobDescription ? `Job Description:\n${ctx.jobDescription}` : ""}
 ${ctx.resume ? `Candidate Resume:\n${ctx.resume}` : "No resume provided."}
+
+${ctx.isB2B ? `
+B2B RECRUITMENT MODE RULES (CRITICAL):
+- You must keep any feedback/acknowledgement on the candidate's previous answer to a MAXIMUM of one short sentence/line (e.g., "Got it, thank you.", "That makes sense.").
+- Transition immediately and directly to the next question. Do NOT give detailed evaluations, summaries, or long-winded feedback in your speech.
+` : ""}
+
+${ctx.questionBankText ? `
+QUESTION BANK TO DRAW FROM:
+The employer uploaded the following question bank file. You MUST construct your interview questions based on the style, topics, difficulty level, and type of questions present in this bank. You do NOT need to ask these questions in the order they appear; you can pick and ask them in a random or customized sequence, or select the most relevant ones dynamically based on the flow of the conversation. You are also allowed and encouraged to dynamically improvise or formulate follow-up questions, but they must align closely with the patterns/standards of this question bank:
+${ctx.questionBankText}
+` : ""}
 
 ${ctx.companyQuestionContext ? `
 RELEVANT RESEARCH ON THIS COMPANY/ROLE:
@@ -60,10 +80,13 @@ PERSONALITY & TONE:
 
 GENERAL RULES:
 1. Briefly acknowledge candidate answers with feedback, then transition.
+   - CRITICAL (B2B/Recruitment Mode): If this is a recruitment/B2B interview (isB2B is true), your feedback/acknowledgement of the candidate's previous answer MUST be a maximum of one sentence (a short one-liner, e.g., "Got it, thank you.", "That makes sense.", "Thanks for sharing."). Keep it extremely brief and then immediately ask the next question. Do NOT elaborate, evaluate, or summarize their response in your spoken turn.
 2. If start (first message): Greet warmly, introduce yourself, and ask your first question. 
    - Note: If you only greet without a substantive question, set "isNewQuestion" to FALSE.
    - If you include a real question, set "isNewQuestion" to TRUE.
+   - CRITICAL: Always introduce yourself using your assigned name if one is provided (e.g., "Hi, I'm [Name], and I'll be conducting your interview today...").
 3. Keep responses concise (2-4 sentences feedback + 1 question).
+   - In B2B mode, keep feedback to exactly 1 sentence, and question to 1-2 sentences.
 4. Never reveal total questions.
 5. Probe once if answer is vague before moving on.
 6. STRICTION: Output ONLY conversational text. Do NOT include any orchestration tags, keys, or metadata (like "isNewQuestion") in your spoken response.

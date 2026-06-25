@@ -24,11 +24,19 @@ export class InterviewService {
     return newInterview;
   }
 
-  async getInterviews(userId: string, filters: any) {
+  async getInterviews(userId: string, filters: any, role?: string) {
     const { page, limit, type, difficulty, status } = filters;
     const skip = (page - 1) * limit;
 
-    const query: any = { userId };
+    const query: any = {};
+    if (role === "employer") {
+      query.employerId = userId;
+    } else if (role === "admin") {
+      query.$or = [{ userId }, { employerId: userId }];
+    } else {
+      query.userId = userId;
+    }
+
     if (type && type !== "all") query.interviewType = type;
     if (difficulty && difficulty !== "all") query.difficultyLevel = difficulty;
     if (status && status !== "all") query.status = status;
@@ -54,7 +62,7 @@ export class InterviewService {
   async getInterviewDetails(userId: string, interviewId: string) {
     const interview = await Interview.findOne({
       _id: interviewId,
-      userId,
+      $or: [{ userId }, { employerId: userId }],
     }).populate("feedbackId");
 
     if (!interview) {

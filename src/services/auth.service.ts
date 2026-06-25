@@ -7,7 +7,7 @@ import { createAccessToken, createRefreshToken } from "./token.service";
 import crypto from "crypto";
 import { OAuth2Client } from "google-auth-library";
 import { generateSecret, generateURI, verify } from "otplib";
-import { MESSAGES } from "../config/constants";
+import { MESSAGES, REQUIRE_EMAIL_VERIFICATION } from "../config/constants";
 import { 
   NotFoundError, 
   ValidationError, 
@@ -38,7 +38,7 @@ export class AuthService {
     return this.googleClient;
   }
 
-  async register(name: string, email: string, password: string, appUrl: string) {
+  async register(name: string, email: string, password: string, appUrl: string, role: string = "user") {
     const normalizedEmail = email.toLowerCase().trim();
     const existingUser = await User.findOne({ email: normalizedEmail });
 
@@ -51,7 +51,7 @@ export class AuthService {
     const newUser = await User.create({
       email: normalizedEmail,
       passwordHash,
-      role: "user",
+      role,
       isEmailVerified: false,
       twoFactorEnabled: false,
       name,
@@ -107,7 +107,7 @@ export class AuthService {
       throw new UnauthorizedError(MESSAGES.AUTH.INVALID_CREDENTIALS);
     }
 
-    if (!user.isEmailVerified) {
+    if (REQUIRE_EMAIL_VERIFICATION && !user.isEmailVerified) {
       throw new ForbiddenError(MESSAGES.AUTH.VERIFY_REQUIRED);
     }
 
@@ -229,16 +229,17 @@ export class AuthService {
     return true;
   }
 
-  getGoogleAuthUrl() {
+  getGoogleAuthUrl(role?: string) {
     const client = this.getGoogleClient();
     return client.generateAuthUrl({
       access_type: "offline",
       prompt: "consent",
       scope: ["openid", "email", "profile"],
+      state: role ? JSON.stringify({ role }) : undefined,
     });
   }
 
-  async handleGoogleCallback(code: string) {
+  async handleGoogleCallback(code: string, role: string = "user") {
     const client = this.getGoogleClient();
     const { tokens } = await client.getToken(code);
     
@@ -267,7 +268,7 @@ export class AuthService {
       user = await User.create({
         email: normalizedEmail,
         passwordHash: await hashPassword(randomPassword),
-        role: "user",
+        role,
         isEmailVerified: true,
         twoFactorEnabled: false,
         name,

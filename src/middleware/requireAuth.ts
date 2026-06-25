@@ -41,7 +41,7 @@ const requireAuth = asyncHandler(async (req: Request, res: Response, next: NextF
     id: user.id,
     email: user.email,
     name: user.name ?? undefined,
-    role: user.role as "user" | "admin",
+    role: user.role as "user" | "admin" | "employer" | "candidate",
     isEmailVerified: user.isEmailVerified,
     hasResume: !!user.resume,
     subscriptionTier: user.subscriptionTier,

@@ -49,6 +49,9 @@ const InterviewState = new StateSchema({
   customTopics: z.string().default(""),
   jobDescription: z.string().default(""),
   companyStyle: z.string().default(""),
+  questionBankText: z.string().optional().default(""),
+  aiInterviewerName: z.string().optional().default(""),
+  isB2B: z.boolean().default(false),
   
   // Progress Tracking
   questionCount: z.number().default(0), // Managed by counter node now
@@ -227,7 +230,7 @@ const technicalNode = async (state: InterviewStateType) => {
     if (state.toolCallCount >= 3) {
       logger.warn({ threadId: (state as any).threadId }, "[GRA] Max tool calls reached, aborting loop.");
       return {
-        messages: [new AIMessage("I've analyzed the technical details. Let's move forward.")],
+        messages: [new AIMessage({ content: "I've analyzed the technical details. Let's move forward.", additional_kwargs: { timestamp: new Date().toISOString() } })],
         isCodingMode: false,
         isNewQuestion: false,
         currentQuestionText: "",
@@ -265,14 +268,14 @@ Rules:
     TechnicalMetaSchema,
     [
       new SystemMessage(metaPrompt),
-      ...trimmedMessages,
+      ...trimmedMessages.slice(-4),
       new HumanMessage(`Assistant response to classify:\n\n${assistantText}`),
     ],
     { timeout: 15000 },
   );
 
   return {
-    messages: [new AIMessage(assistantText)],
+    messages: [new AIMessage({ content: assistantText, additional_kwargs: { timestamp: new Date().toISOString() } })],
     isCodingMode: meta.isCodingMode,
     isNewQuestion: meta.isNewQuestion,
     currentQuestionText: meta.isNewQuestion ? meta.currentQuestionText || "" : "",
@@ -329,7 +332,7 @@ const behavioralNode = async (state: InterviewStateType) => {
   );
 
   return {
-    messages: [new AIMessage(result.content)],
+    messages: [new AIMessage({ content: result.content, additional_kwargs: { timestamp: new Date().toISOString() } })],
     isCodingMode: false, // Behavioral never has coding mode
     isNewQuestion: result.isNewQuestion,
     currentQuestionText: result.currentQuestionText || "",
@@ -366,7 +369,7 @@ const sysdesignNode = async (state: InterviewStateType) => {
   );
 
   return {
-    messages: [new AIMessage(result.content)],
+    messages: [new AIMessage({ content: result.content, additional_kwargs: { timestamp: new Date().toISOString() } })],
     isCodingMode: false,
     isNewQuestion: result.isNewQuestion,
     currentQuestionText: result.currentQuestionText || "",
@@ -451,7 +454,7 @@ const finishNode = async (state: InterviewStateType) => {
     isNewQuestion: false,
     currentQuestionText: "",
     interviewPhase: "closing",
-    messages: [new AIMessage(closingText)],
+    messages: [new AIMessage({ content: closingText, additional_kwargs: { timestamp: new Date().toISOString() } })],
   };
 };
 
