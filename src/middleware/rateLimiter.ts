@@ -4,7 +4,7 @@ import { MESSAGES } from "../config/constants";
 
 export const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: 1000, // Increased for development
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next) => {
@@ -14,7 +14,7 @@ export const globalRateLimiter = rateLimit({
 
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, 
-  max: 10, // 10 requests per 15 minutes
+  max: 50, // Increased for development
   standardHeaders: true,
   legacyHeaders: false,
   handler: (req, res, next) => {
