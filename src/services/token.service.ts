@@ -3,7 +3,7 @@ import { env } from "../config/env";
 
 export function createAccessToken(
   userId: string,
-  role: "user" | "admin",
+  role: "user" | "admin" | "employer" | "candidate",
   tokenVersion: number
 ) {
   const payload = {
@@ -12,15 +12,17 @@ export function createAccessToken(
     tokenVersion,
   };
 
+  const exp = role === "candidate" ? "30m" : "15m";
+
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, {
-    expiresIn: "15m",
+    expiresIn: exp,
   });
 }
 
 export function verifyAccessToken(token: string) {
   return jwt.verify(token, env.JWT_ACCESS_SECRET) as {
     sub: string;
-    role: "user" | "admin";
+    role: "user" | "admin" | "employer" | "candidate";
     tokenVersion: number;
   };
 }

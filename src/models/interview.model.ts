@@ -62,7 +62,49 @@ const interviewSchema = new Schema(
     },
     resume: {
       type: String,
-    }
+    },
+    employerId: {
+      ref: "User",
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+    },
+    candidateName: {
+      type: String,
+      required: false,
+    },
+    candidateEmail: {
+      type: String,
+      required: false,
+    },
+    snapshots: [
+      {
+        timestamp: { type: Date, default: Date.now },
+        filename: { type: String, required: true },
+        cloudinaryUrl: { type: String, required: false },
+        trigger: {
+          type: String,
+          enum: ["random", "tab-switch", "start", "finish"],
+          required: true,
+        },
+      },
+    ],
+    proctoringLogs: [
+      {
+        timestamp: { type: Date, default: Date.now },
+        event: { type: String, required: true },
+        details: { type: String, required: true },
+      },
+    ],
+    recruitmentJobId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "RecruitmentJob",
+      required: false,
+      index: true,
+    },
+    videoFilename: {
+      type: String,
+      required: false,
+    },
   },
   {
     timestamps: true,

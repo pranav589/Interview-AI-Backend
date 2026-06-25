@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
 import { feedbackService } from "../../services/feedback.service";
+import { Interview } from "../../models/interview.model";
+import { InterviewInvite } from "../../models/interview-invite.model";
 import {
   interviewSchema,
   getInterviewsQuerySchema,
@@ -60,6 +62,7 @@ export const getInterviews = asyncHandler(
     const data = await interviewService.getInterviews(
       authUser!.id,
       result.data,
+      authUser!.role
     );
     return res.status(200).json({
       success: true,
@@ -89,20 +92,39 @@ export const getInterviewDetails = asyncHandler(
 
     const state = await graphApp.getState({ configurable: { thread_id: id } });
 
-    const transcriptions =
+    const rawTranscriptions =
       (state.values as any)?.messages
         ?.map((msg: any) => ({
           role: msg._getType(),
           text: stripMetadata(msg.content),
-          timestamp: msg.response_metadata?.timestamp || new Date(),
+          timestamp: msg.additional_kwargs?.timestamp || msg.response_metadata?.timestamp || new Date(),
         }))
         .filter((m: any) => m.text && !isLikelyMetaLeak(m.text)) || [];
+
+    const transcriptions: any[] = [];
+    for (const msg of rawTranscriptions) {
+      const last = transcriptions[transcriptions.length - 1];
+      if (last && last.role === msg.role && msg.role === 'human') {
+        last.text = `${last.text} ${msg.text}`.trim();
+      } else {
+        transcriptions.push(msg);
+      }
+    }
+
+    const isCandidate = interview.userId.toString() === authUser!.id;
+    let interviewObj = interview.toObject();
+
+    // Secure candidate feedback from unauthorized exposure on B2B rounds
+    if (isCandidate && interview.employerId) {
+      delete (interviewObj as any).feedbackId;
+      delete (interviewObj as any).score;
+    }
 
     return res.status(200).json({
       success: true,
       message: MESSAGES.INTERVIEW.DETAILS_FETCHED,
       data: {
-        ...interview.toObject(),
+        ...interviewObj,
         transcriptions,
         activeJobId,
       },
@@ -131,6 +153,13 @@ export const getFeedbackHandler = asyncHandler(
     const fullUser = (req as any).fullUser;
     const isFreeTier = fullUser.subscriptionTier === "free";
 
+    // Mark interview and invite as completed immediately
+    await Interview.findByIdAndUpdate(result.data.threadId, { status: "completed" });
+    await InterviewInvite.findOneAndUpdate(
+      { interviewId: result.data.threadId },
+      { status: "completed" }
+    );
+
     // Create a background job
     const job = await interviewJobService.createJob(authUser!.id, "feedback-generation", {
       interviewId: result.data.threadId,
@@ -149,13 +178,23 @@ export const getFeedbackHandler = asyncHandler(
       
       const interview = await interviewService.getInterviewDetails(authUser!.id, result.data.threadId);
       
-      await notificationService.createNotification({
-        userId: authUser!.id,
-        type: "success",
-        title: "Interview Analysis Complete",
-        message: `Your feedback for "${interview.jobTitle || "the interview session"}" is ready.`,
-        link: `/interview/${result.data.threadId}`
-      });
+      if (interview.employerId) {
+        await notificationService.createNotification({
+          userId: interview.employerId.toString(),
+          type: "success",
+          title: "Candidate Interview Completed",
+          message: `Candidate ${interview.candidateName || ""} has completed the interview for "${interview.jobTitle || "the role"}".`,
+          link: `/dashboard/recruitment/${result.data.threadId}`
+        });
+      } else {
+        await notificationService.createNotification({
+          userId: authUser!.id,
+          type: "success",
+          title: "Interview Analysis Complete",
+          message: `Your feedback for "${interview.jobTitle || "the interview session"}" is ready.`,
+          link: `/interview/${result.data.threadId}`
+        });
+      }
     }).catch(async (err) => {
       await interviewJobService.updateStatus(job._id.toString(), authUser!.id, "failed", {
         error: err.message || "Unknown error during feedback generation",

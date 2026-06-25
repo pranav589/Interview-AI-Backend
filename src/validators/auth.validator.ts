@@ -2,9 +2,10 @@ import z from "zod";
 import { MESSAGES } from "../config/constants";
 
 export const registerSchema = z.object({
-  email: z.email(),
+  email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(3),
+  role: z.enum(["user", "employer"]).optional().default("user"),
 });
 
 export const loginSchema = z.object({
